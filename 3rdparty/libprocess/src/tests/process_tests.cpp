@@ -917,7 +917,7 @@ TEST(ProcessTest, Remote)
 }
 
 
-// Like the 'remote' test but uses http::connect.
+// Like the 'remote' test but uses `http::post`.
 TEST(ProcessTest, Http1)
 {
   ASSERT_TRUE(GTEST_IS_THREADSAFE);
@@ -925,16 +925,22 @@ TEST(ProcessTest, Http1)
   RemoteProcess process;
   spawn(process);
 
-  http::URL url = http::URL(
-      "http",
-      process.self().address.ip,
-      process.self().address.port,
-      process.self().id + "/handler");
+  // Create a receiving socket so we can get messages back.
+  Try<Socket> create = Socket::create();
+  ASSERT_SOME(create);
 
-  Future<http::Connection> connect = http::connect(url);
-  AWAIT_READY(connect);
+  Socket socket = create.get();
 
-  http::Connection connection = connect.get();
+  ASSERT_SOME(socket.bind(Address()));
+
+  // Create a UPID for 'User-Agent' based on the IP and port we
+  // got assigned.
+  Try<Address> address = socket.address();
+  ASSERT_SOME(address);
+
+  UPID from("", address.get());
+
+  ASSERT_SOME(socket.listen(1));
 
   Future<UPID> pid;
   Future<string> body;
@@ -942,34 +948,44 @@ TEST(ProcessTest, Http1)
     .WillOnce(DoAll(FutureArg<0>(&pid),
                     FutureArg<1>(&body)));
 
-  http::Request request;
-  request.method = "POST";
-  request.url = url;
-  request.headers["User-Agent"] = "libprocess/";
-  request.body = "hello world";
+  http::Headers headers;
+  headers["User-Agent"] = "libprocess/" + stringify(from);
 
-  // Send the libprocess request. Note that we will not
-  // receive a 202 due to the use of the `User-Agent`
-  // header, therefore we need to explicitly disconnect!
-  Future<http::Response> response = connection.send(request);
+  // We expect a "202 Accepted" response.
+  Future<http::Response> response =
+    http::post(process.self(), "handler", headers, "hello world");
+
+  AWAIT_READY(response);
+  ASSERT_EQ(http::Status::ACCEPTED, response->code);
+  ASSERT_EQ(http::Status::string(http::Status::ACCEPTED),
+            response->status);
 
   AWAIT_READY(body);
   ASSERT_EQ("hello world", body.get());
 
   AWAIT_READY(pid);
-  ASSERT_EQ(UPID(), pid.get());
+  ASSERT_EQ(from, pid.get());
 
-  EXPECT_TRUE(response.isPending());
+  // Now post a message as though it came from the process.
+  const string name = "reply";
+  post(process.self(), from, name);
 
-  AWAIT_READY(connection.disconnect());
+  // Accept the incoming connection.
+  Future<Socket> accept = socket.accept();
+  AWAIT_READY(accept);
+
+  Socket client = accept.get();
+
+  const string data = "POST /" + name + " HTTP/1.1";
+
+  AWAIT_EXPECT_EQ(data, client.recv(data.size()));
 
   terminate(process);
   wait(process);
 }
 
 
-// Like 'http1' but uses the 'Libprocess-From' header. We can
-// also use http::post here since we expect a 202 response.
+// Like 'http1' but uses the 'Libprocess-From' header.
 TEST(ProcessTest, Http2)
 {
   ASSERT_TRUE(GTEST_IS_THREADSAFE);
@@ -1003,6 +1019,7 @@ TEST(ProcessTest, Http2)
   http::Headers headers;
   headers["Libprocess-From"] = stringify(from);
 
+  // We expect a "202 Accepted" response.
   Future<http::Response> response =
     http::post(process.self(), "handler", headers, "hello world");
 
@@ -1342,15 +1359,14 @@ TEST(ProcessTest, PercentEncodedURLs)
   request.url = url;
   request.headers["User-Agent"] = "libprocess/";
 
-  // Send the libprocess request. Note that we will not
-  // receive a 202 due to the use of the `User-Agent`
-  // header, therefore we need to explicitly disconnect!
+  // Send the libprocess request and expect a "202" response.
   Future<http::Response> response = connection.send(request);
 
   AWAIT_READY(handler1);
-  EXPECT_TRUE(response.isPending());
 
-  AWAIT_READY(connection.disconnect());
+  AWAIT_READY(response);
+  EXPECT_EQ(http::Status::ACCEPTED, response->code);
+  EXPECT_EQ(http::Status::string(http::Status::ACCEPTED), response->status);
 
   // Now an HTTP request.
   EXPECT_CALL(process, handler2(_))

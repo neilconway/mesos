@@ -2268,22 +2268,18 @@ void ProcessManager::handle(const Socket& socket, Request* request)
       // Get the HttpProxy pid for this socket.
       PID<HttpProxy> proxy = socket_manager->proxy(socket);
 
-      // Only send back an HTTP response if this isn't from libprocess
-      // (which we determine by looking at the User-Agent). This is
-      // necessary because older versions of libprocess would try and
-      // recv the data and parse it as an HTTP request which would
-      // fail thus causing the socket to get closed (but now
-      // libprocess will ignore responses, see ignore_data).
-      Option<string> agent = request->headers.get("User-Agent");
-      if (agent.getOrElse("").find("libprocess/") == string::npos) {
-        if (accepted) {
-          VLOG(2) << "Accepted libprocess message to " << request->url.path;
-          dispatch(proxy, &HttpProxy::enqueue, Accepted(), *request);
-        } else {
-          VLOG(1) << "Failed to handle libprocess message to "
-                  << request->url.path << ": not found";
-          dispatch(proxy, &HttpProxy::enqueue, NotFound(), *request);
-        }
+      // Send back a "202 Accepted" response. If the request was sent
+      // by libprocess, the sending libprocess will discard any
+      // response data it receives (see `ignore_recv_data`). However,
+      // non-libprocess HTTP clients will typically expect a response
+      // to every request.
+      if (accepted) {
+        VLOG(2) << "Accepted libprocess message to " << request->url.path;
+        dispatch(proxy, &HttpProxy::enqueue, Accepted(), *request);
+      } else {
+        VLOG(1) << "Failed to handle libprocess message to "
+                << request->url.path << ": not found";
+        dispatch(proxy, &HttpProxy::enqueue, NotFound(), *request);
       }
 
       delete request;
