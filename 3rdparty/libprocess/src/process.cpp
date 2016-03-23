@@ -420,7 +420,7 @@ public:
   void enqueue(ProcessBase* process);
   ProcessBase* dequeue();
 
-  void settle();
+  void settle(bool insideProc = false);
 
   // The /__processes__ route.
   Future<Response> __processes__(const Request&);
@@ -522,9 +522,9 @@ Future<Nothing> unsetAuthenticator(const string& realm)
 // NOTE: Clock::* implementations are in clock.cpp except for
 // Clock::settle which currently has a dependency on
 // 'process_manager'.
-void Clock::settle()
+void Clock::settle(bool insideProc)
 {
-  process_manager->settle();
+  process_manager->settle(insideProc);
 }
 
 
@@ -544,7 +544,7 @@ static Message* encode(const UPID& from,
 
 static void transport(Message* message, ProcessBase* sender = NULL)
 {
-  if (message->to.address == __address__) {
+  if (message->to.address == __address__ && false) {
     // Local message.
     process_manager->deliver(message->to, new MessageEvent(message), sender);
   } else {
@@ -2941,7 +2941,7 @@ ProcessBase* ProcessManager::dequeue()
 }
 
 
-void ProcessManager::settle()
+void ProcessManager::settle(bool insideProc)
 {
   bool done = true;
   do {
@@ -2959,6 +2959,11 @@ void ProcessManager::settle()
     // process on the run queue).
     os::sleep(Milliseconds(10));
 
+    size_t num_running = 0;
+    if (insideProc) {
+      num_running = 1;
+    }
+
     done = true; // Assume to start that we are settled.
 
     synchronized (runq_mutex) {
@@ -2967,7 +2972,7 @@ void ProcessManager::settle()
         continue;
       }
 
-      if (running.load() > 0) {
+      if (running.load() > num_running) {
         done = false;
         continue;
       }
