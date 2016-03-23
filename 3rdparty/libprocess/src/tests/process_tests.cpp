@@ -49,6 +49,7 @@
 #include <stout/hashset.hpp>
 #include <stout/lambda.hpp>
 #include <stout/nothing.hpp>
+#include <stout/numify.hpp>
 #include <stout/os.hpp>
 #include <stout/stopwatch.hpp>
 #include <stout/stringify.hpp>
@@ -74,6 +75,7 @@ using process::Owned;
 using process::PID;
 using process::Process;
 using process::ProcessBase;
+using process::Promise;
 using process::run;
 using process::TerminateEvent;
 using process::Time;
@@ -1537,4 +1539,123 @@ TEST(ProcessTest, FirewallUninstall)
 
   terminate(process);
   wait(process);
+}
+
+
+class OrderRecvProcess : public Process<OrderRecvProcess>
+{
+public:
+  OrderRecvProcess()
+    : lastRequestSeqno(0) {}
+
+  virtual ~OrderRecvProcess() {}
+
+protected:
+  virtual void initialize()
+  {
+    install("ping", &OrderRecvProcess::ping);
+  }
+
+private:
+  void ping(const UPID& from, const string& body)
+  {
+    Try<int> seqno = numify<int>(body);
+    if (seqno.isError()) {
+      return;
+    }
+
+    LOG(INFO) << "Got ping: " << seqno.get();
+    CHECK(seqno.get() > lastRequestSeqno)
+      << "Saw seqno: " << seqno.get()
+      << "; lastRequestSeqno: " << lastRequestSeqno;
+
+    lastRequestSeqno = seqno.get();
+
+    if (seqno.get() == 100)
+    {
+      send(from, "pong", body.c_str(), body.size());
+    }
+  }
+
+  int lastRequestSeqno;
+};
+
+
+class OrderSendProcess : public Process<OrderSendProcess>
+{
+public:
+  OrderSendProcess() {}
+
+  virtual ~OrderSendProcess() {}
+
+protected:
+  virtual void initialize()
+  {
+    route("/run", None(), &OrderSendProcess::run);
+
+    install("pong", &OrderSendProcess::pong);
+  }
+
+private:
+  Future<http::Response> run(const http::Request& request)
+  {
+    Option<string> target = request.url.query.get("target");
+    if (target.isNone()) {
+      return http::BadRequest("Missing 'target' parameter");
+    }
+
+    UPID targetPid = UPID(target.get());
+    for (int i = 1; i <= 100; i++) {
+      string body = stringify(i);
+      send(targetPid, "ping", body.c_str(), body.size());
+      Clock::settle(true);
+    }
+
+    return receivedPong.future().then([](Nothing) -> Future<http::Response> {
+      return http::OK();
+    });
+  }
+
+
+  void pong(const UPID& from, const string& body)
+  {
+    LOG(INFO) << "GOT PONG! body = " << body;
+    receivedPong.set(Nothing());
+  }
+
+  Promise<Nothing> receivedPong;
+};
+
+
+// This test sends a large number of messages over ephemeral sockets
+// and verifies that no out-of-order message deliveries are observed.
+TEST(ProcessTest, EphemeralMessageOrdering)
+{
+  Clock::pause();
+
+  OrderRecvProcess recv;
+  UPID recvPid = spawn(&recv);
+
+  OrderSendProcess sender;
+  UPID sendPid = spawn(&sender);
+
+  LOG(INFO) << "recvPid = " << recvPid << "; sendPid = " << sendPid;
+  LOG(INFO) << "recv addr = " << &recv << "; send addr = " << &sender;
+
+  string query = "&target=" + stringify(recvPid);
+
+  Future<http::Response> response = http::get(
+      sender.self(),
+      "run",
+      "&target=" + stringify(recvPid));
+
+  AWAIT_READY(response);
+
+  terminate(sender);
+  wait(sender);
+
+  terminate(recv);
+  wait(recv);
+
+  Clock::resume();
 }

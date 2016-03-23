@@ -122,7 +122,7 @@ public:
   // TODO(benh): Move this function elsewhere, for instance, to a
   // top-level function in the 'process' namespace since it deals with
   // both processes and the clock.
-  static void settle();
+  static void settle(bool insideProc = false);
 
   // When the clock is paused this returns true if all timers that
   // expire before the paused time have executed, otherwise false.
