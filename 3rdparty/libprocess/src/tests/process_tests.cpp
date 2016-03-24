@@ -1040,36 +1040,37 @@ TEST(ProcessTest, Http2)
 }
 
 
-int foo()
+static int foo()
 {
   return 1;
 }
 
-int foo1(int a)
+
+static int foo1(int a)
 {
   return a;
 }
 
 
-int foo2(int a, int b)
+static int foo2(int a, int b)
 {
   return a + b;
 }
 
 
-int foo3(int a, int b, int c)
+static int foo3(int a, int b, int c)
 {
   return a + b + c;
 }
 
 
-int foo4(int a, int b, int c, int d)
+static int foo4(int a, int b, int c, int d)
 {
   return a + b + c + d;
 }
 
 
-void bar(int a)
+static void bar(int a)
 {
   return;
 }
@@ -1159,9 +1160,10 @@ TEST(ProcessTest, Provide)
 }
 
 
-int baz(string s) { return 42; }
+static int baz(string s) { return 42; }
 
-Future<int> bam(string s) { return 42; }
+
+static Future<int> bam(string s) { return 42; }
 
 
 TEST(ProcessTest, Defers)
@@ -1306,9 +1308,6 @@ TEST(ProcessTest, Defers)
 class PercentEncodedIDProcess : public Process<PercentEncodedIDProcess>
 {
 public:
-  PercentEncodedIDProcess()
-    : ProcessBase("id(42)") {}
-
   virtual void initialize()
   {
     install("handler1", &Self::handler1);
@@ -1409,12 +1408,12 @@ TEST(ProcessTest, FirewallDisablePaths)
 {
   const string id = "testprocess";
 
-  // TODO(arojas): Add initilization list construction when available.
-  hashset<string> endpoints;
-  endpoints.insert(path::join("", id, "handler1"));
-  endpoints.insert(path::join("", id, "handler2/nested"));
-  // Patterns are not supported, so this should do nothing.
-  endpoints.insert(path::join("", id, "handler3/*"));
+  hashset<string> endpoints {
+    path::join("", id, "handler1"),
+    path::join("", id, "handler2/nested"),
+    // Patterns are not supported, so this should do nothing.
+    path::join("", id, "handler3/*")
+  };
 
   process::firewall::install(
       {Owned<FirewallRule>(new DisabledEndpointsFirewallRule(endpoints))});
@@ -1494,10 +1493,10 @@ TEST(ProcessTest, FirewallUninstall)
 {
   const string id = "testprocess";
 
-  // TODO(arojas): Add initilization list construction when available.
-  hashset<string> endpoints;
-  endpoints.insert(path::join("", id, "handler1"));
-  endpoints.insert(path::join("", id, "handler2"));
+  hashset<string> endpoints {
+    path::join("", id, "handler1"),
+    path::join("", id, "handler2")
+  };
 
   process::firewall::install(
       {Owned<FirewallRule>(new DisabledEndpointsFirewallRule(endpoints))});

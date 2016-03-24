@@ -395,9 +395,7 @@ public:
 
   ProcessReference use(const UPID& pid);
 
-  void handle(
-      const Socket& socket,
-      Request* request);
+  void handle(const Socket& socket, Request* request);
 
   bool deliver(
       ProcessBase* receiver,
@@ -628,7 +626,7 @@ static Message* parse(Request* request)
 
 namespace internal {
 
-void decode_recv(
+void decode_request(
     const Future<size_t>& length,
     char* data,
     size_t size,
@@ -688,7 +686,13 @@ void decode_recv(
   }
 
   socket->recv(data, size)
-    .onAny(lambda::bind(&decode_recv, lambda::_1, data, size, socket, decoder));
+    .onAny(lambda::bind(
+        &decode_request,
+        lambda::_1,
+        data,
+        size,
+        socket,
+        decoder));
 }
 
 } // namespace internal {
@@ -747,7 +751,7 @@ void on_accept(const Future<Socket>& socket)
 
     socket.get().recv(data, size)
       .onAny(lambda::bind(
-          &internal::decode_recv,
+          &internal::decode_request,
           lambda::_1,
           data,
           size,
@@ -1222,9 +1226,7 @@ bool HttpProxy::process(const Future<Response>& future, const Request& request)
 }
 
 
-void HttpProxy::stream(
-    const Request& request,
-    const Future<string>& chunk)
+void HttpProxy::stream(const Request& request, const Future<string>& chunk)
 {
   CHECK_SOME(pipe);
 
@@ -1451,7 +1453,6 @@ void SocketManager::link(
 
       sockets[s] = new Socket(socket.get());
       addresses[s] = to.address;
-
       persists[to.address] = s;
 
       // Initialize 'outgoing' to prevent a race with
@@ -1781,7 +1782,6 @@ void SocketManager::send(Message* message, const Socket::Kind& kind)
       sockets[s] = new Socket(socket.get());
       addresses[s] = address;
       temps[address] = s;
-
       dispose.insert(s);
 
       // Initialize the outgoing queue.
@@ -1848,6 +1848,7 @@ Encoder* SocketManager::next(int s)
           // This is either a temporary socket we created or it's a
           // socket that we were receiving data from and possibly
           // sending HTTP responses back on. Clean up either way.
+
           if (addresses.count(s) > 0) {
             const Address& address = addresses[s];
             CHECK(temps.count(address) > 0 && temps[address] == s);
@@ -2280,9 +2281,7 @@ ProcessReference ProcessManager::use(const UPID& pid)
 }
 
 
-void ProcessManager::handle(
-    const Socket& socket,
-    Request* request)
+void ProcessManager::handle(const Socket& socket, Request* request)
 {
   CHECK(request != NULL);
 
