@@ -173,6 +173,10 @@ public:
     // enabling reuse of a pool of preallocated strings/buffers.
     virtual Future<Nothing> send(const std::string& data);
 
+    /**
+     * Shutdown the receive-side of the socket. No further data can be
+     * received from the socket.
+     */
     virtual Try<Nothing> shutdown()
     {
       if (::shutdown(s, SHUT_RD) < 0) {
