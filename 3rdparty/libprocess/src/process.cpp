@@ -350,7 +350,7 @@ private:
       Socket* socket,
       Message* message);
 
-  // Collection of all active sockets.
+  // Collection of all active sockets (both inbound and outbound).
   map<int, Socket*> sockets;
 
   // Collection of sockets that should be disposed when they are
@@ -358,21 +358,21 @@ private:
   // them).
   set<int> dispose;
 
-  // Map from socket to socket address (ip, port).
+  // Map from socket to socket address for outbound sockets.
   map<int, Address> addresses;
 
-  // Maps from socket address (ip, port) to temporary sockets (i.e.,
-  // they will get closed once there is no more data to send on them).
+  // Map from socket address to temporary sockets (outbound sockets
+  // that will be closed once there is no more data to send on them).
   map<Address, int> temps;
 
-  // Maps from socket address (ip, port) to persistent sockets (i.e., they will
-  // remain open even if there is no more data to send on them).  We
-  // distinguish these from the 'temps' collection so we can tell when
-  // a persistent socket has been lost (and thus generate
-  // ExitedEvents).
+  // Map from socket address (ip, port) to persistent sockets
+  // (outbound sockets that will remain open even if there is no more
+  // data to send on them).  We distinguish these from the 'temps'
+  // collection so we can tell when a persistent socket has been lost
+  // (and thus generate ExitedEvents).
   map<Address, int> persists;
 
-  // Map from socket to outgoing queue.
+  // Map from outbound socket to outgoing queue.
   map<int, queue<Encoder*>> outgoing;
 
   // HTTP proxies.
@@ -556,6 +556,10 @@ static void transport(Message* message, ProcessBase* sender = NULL)
 }
 
 
+// Returns true if `request` contains an inbound libprocess message.
+// Messages sent by another libprocess instance will set both
+// "User-Agent" and "Libprocess-From" headers; messages from
+// non-libprocess HTTP clients will set only "Libprocess-From".
 static bool libprocess(Request* request)
 {
   return
@@ -1806,6 +1810,10 @@ void SocketManager::send(Message* message, const Socket::Kind& kind)
 }
 
 
+// Returns a pointer to the next Encoder we should use to send data on
+// the given socket. If there is no more data to send, this erases the
+// `outgoing` queue for the socket, cleans up associated state, and
+// returns NULL.
 Encoder* SocketManager::next(int s)
 {
   HttpProxy* proxy = NULL; // Non-null if needs to be terminated.
@@ -1936,15 +1944,14 @@ void SocketManager::close(int s)
       dispose.erase(s);
       auto iterator = sockets.find(s);
 
-      // We need to stop any 'ignore_data' receivers as they may have
-      // the last Socket reference so we shutdown recvs but don't do a
-      // full close (since that will be taken care of by ~Socket, see
-      // comment below). Calling 'shutdown' will trigger 'ignore_data'
-      // which will get back a 0 (i.e., EOF) when it tries to 'recv'
-      // from the socket. Note we need to do this before we call
-      // 'sockets.erase(s)' to avoid the potential race with the last
-      // reference being in 'sockets'.
-
+      // We need to stop any 'ignore_recv_data' receivers as they may
+      // have the last Socket reference so we shutdown recvs but don't
+      // do a full close (since that will be taken care of by ~Socket,
+      // see comment below). Calling 'shutdown' will trigger
+      // 'ignore_recv_data' which will get back a 0 (i.e., EOF) when
+      // it tries to 'recv' from the socket. Note we need to do this
+      // before we call 'sockets.erase(s)' to avoid the potential race
+      // with the last reference being in 'sockets'.
 
       // Hold on to the Socket and remove it from the 'sockets' map so
       // that in the case where 'shutdown()' ends up calling close the
