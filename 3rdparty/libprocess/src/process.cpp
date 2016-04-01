@@ -414,6 +414,9 @@ public:
   void terminate(const UPID& pid, bool inject, ProcessBase* sender = NULL);
   bool wait(const UPID& pid);
 
+  void retire_socket(int socket);
+  void swap_socket(int oldSocket, int newSocket);
+
   void installFirewall(vector<Owned<firewall::FirewallRule>>&& rules);
   string absolutePath(const string& path);
 
@@ -426,6 +429,13 @@ public:
   Future<Response> __processes__(const Request&);
 
 private:
+  // The socket FD that was last used to deliver messages for each
+  // still-connected remote libprocess instance.
+  map<network::Address, int> inboundSockets;
+
+  // Inverse map for `inboundSockets`.
+  map<int, network::Address> inboundAddresses;
+
   // Delegate process name to receive root HTTP requests.
   const Option<string> delegate;
 
@@ -1863,6 +1873,8 @@ Encoder* SocketManager::next(int s)
 
           dispose.erase(s);
 
+          process_manager->retire_socket(s);
+
           auto iterator = sockets.find(s);
 
           // We don't actually close the socket (we wait for the Socket
@@ -1943,6 +1955,9 @@ void SocketManager::close(int s)
       }
 
       dispose.erase(s);
+
+      process_manager->retire_socket(s);
+
       auto iterator = sockets.find(s);
 
       // We need to stop any 'ignore_recv_data' receivers as they may
@@ -2141,6 +2156,9 @@ void SocketManager::swap_implementing_socket(const Socket& from, Socket* to)
       proxies[to_fd] = proxies[from_fd];
       proxies.erase(from_fd);
     }
+
+    // Update the ProcessManager.
+    process_manager->swap_socket(from_fd, to_fd);
   }
 }
 
@@ -2281,6 +2299,41 @@ ProcessReference ProcessManager::use(const UPID& pid)
 }
 
 
+// Invoked by the socket manager when no more data will be received
+// from the given socket.
+void ProcessManager::retire_socket(int socket)
+{
+  // If we haven't received a message via this socket, neither of the
+  // inbound maps will have an entry for the socket/address pair.
+  if (inboundAddresses.count(socket) > 0) {
+    const network::Address& address = inboundAddresses[socket];
+    CHECK(inboundSockets.count(address) > 0 &&
+          inboundSockets[address] == socket);
+
+    inboundAddresses.erase(socket);
+    inboundSockets.erase(address);
+  }
+}
+
+
+void ProcessManager::swap_socket(int oldSocket, int newSocket)
+{
+  CHECK(inboundAddresses.count(newSocket) == 0);
+
+  if (inboundAddresses.count(oldSocket) > 0) {
+    const network::Address& address = inboundAddresses[oldSocket];
+
+    CHECK(inboundSockets.count(address) > 0 &&
+          inboundSockets[address] == oldSocket);
+
+    inboundSockets[address] = newSocket;
+
+    inboundAddresses.erase(oldSocket);
+    inboundAddresses[newSocket] = address;
+  }
+}
+
+
 void ProcessManager::handle(const Socket& socket, Request* request)
 {
   CHECK(request != NULL);
@@ -2298,6 +2351,31 @@ void ProcessManager::handle(const Socket& socket, Request* request)
       delete request;
       return;
     }
+
+    // Check whether we have previously delivered a message from the
+    // same sending libprocess instance via a different socket. If so,
+    // close the old socket before attempting to deliver this message.
+    // If we allowed messages from a single process to be delivered
+    // via different sockets at the same time, we might deliver
+    // messages out-of-order (MESOS-3870).
+    const network::Address& fromAddress = message->from.address;
+
+    if (inboundSockets.count(fromAddress) > 0 &&
+        inboundSockets[fromAddress] != socket) {
+      int oldSocket = inboundSockets[fromAddress];
+
+      CHECK(inboundAddresses.count(oldSocket) > 0 &&
+            inboundAddresses[oldSocket] == fromAddress);
+      CHECK(inboundAddresses.count(socket) == 0);
+
+      socket_manager->close(oldSocket);
+
+      CHECK(inboundSockets.count(fromAddress) == 0);
+      CHECK(inboundAddresses.count(oldSocket) == 0);
+    }
+
+    inboundSockets[fromAddress] = socket;
+    inboundAddresses[socket] = fromAddress;
 
     // TODO(benh): Use the sender PID when delivering in order to
     // capture happens-before timing relationships for testing.
