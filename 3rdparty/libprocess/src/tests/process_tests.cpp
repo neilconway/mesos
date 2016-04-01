@@ -1548,13 +1548,161 @@ TEST(ProcessTest, FirewallUninstall)
 }
 
 
+// This test verifies that if a libprocess sender (identified by the
+// address field of the UPID in the "Libprocess-From" header) opens
+// two sockets to the same libprocess recipient, the first socket is
+// closed.
+TEST(ProcessTest, MultipleSocketsSameSender)
+{
+  ASSERT_TRUE(GTEST_IS_THREADSAFE);
+
+  RemoteProcess process;
+  spawn(process);
+
+  Future<Nothing> handler;
+  EXPECT_CALL(process, handler(_, _))
+    .WillOnce(FutureSatisfy(&handler));
+
+  Try<Socket> create1 = Socket::create();
+  ASSERT_SOME(create1);
+
+  Socket socket1 = create1.get();
+
+  AWAIT_READY(socket1.connect(process.self().address));
+
+  const UPID senderPid = process::ID::generate("");
+
+  Message message1;
+  message1.name = "handler";
+  message1.from = senderPid;
+  message1.to = process.self();
+
+  const string data1 = MessageEncoder::encode(&message1);
+
+  AWAIT_READY(socket1.send(data1));
+
+  AWAIT_READY(handler);
+
+  Try<Socket> create2 = Socket::create();
+  ASSERT_SOME(create2);
+
+  Socket socket2 = create2.get();
+
+  AWAIT_READY(socket2.connect(process.self().address));
+
+  Message message2;
+  message2.name = "handler";
+  message2.from = senderPid;
+  message2.to = process.self();
+
+  const string data2 = MessageEncoder::encode(&message2);
+
+  EXPECT_CALL(process, handler(_, _))
+    .WillOnce(FutureSatisfy(&handler));
+
+  AWAIT_READY(socket2.send(data2));
+
+  AWAIT_READY(handler);
+
+  // `socket1` should be closed, so `recv()` will return EOF.
+  char recvBuf[1024];
+  Future<size_t> recvResult = socket1.recv(recvBuf, sizeof(recvBuf));
+
+  AWAIT_READY(recvResult);
+  EXPECT_EQ(0, recvResult.get());
+
+  terminate(process);
+  wait(process);
+}
+
+
+TEST(ProcessTest, MultipleSocketsDifferentSender)
+{
+  ASSERT_TRUE(GTEST_IS_THREADSAFE);
+
+  RemoteProcess process;
+  spawn(process);
+
+  Future<Nothing> handler;
+  EXPECT_CALL(process, handler(_, _))
+    .WillOnce(FutureSatisfy(&handler));
+
+  Try<Socket> create1 = Socket::create();
+  ASSERT_SOME(create1);
+
+  Socket socket1 = create1.get();
+
+  AWAIT_READY(socket1.connect(process.self().address));
+
+  // Create UPIDs with distinct addresses. There likely won't be a
+  // reachable libprocess instance on either address, but the current
+  // libprocess code doesn't require that.
+  Try<net::IP> ip = net::IP::parse("127.0.0.1", AF_INET);
+  ASSERT_SOME(ip);
+
+  const UPID senderPid1 = UPID("multi-socket", ip.get(), 5555);
+  const UPID senderPid2 = UPID("multi-socket", ip.get(), 5556);
+
+  Message message1;
+  message1.name = "handler";
+  message1.from = senderPid1;
+  message1.to = process.self();
+
+  const string data1 = MessageEncoder::encode(&message1);
+
+  AWAIT_READY(socket1.send(data1));
+
+  AWAIT_READY(handler);
+
+  Try<Socket> create2 = Socket::create();
+  ASSERT_SOME(create2);
+
+  Socket socket2 = create2.get();
+
+  AWAIT_READY(socket2.connect(process.self().address));
+
+  Message message2;
+  message2.name = "handler";
+  message2.from = senderPid2;
+  message2.to = process.self();
+
+  const string data2 = MessageEncoder::encode(&message2);
+
+  EXPECT_CALL(process, handler(_, _))
+    .WillOnce(FutureSatisfy(&handler));
+
+  AWAIT_READY(socket2.send(data2));
+
+  AWAIT_READY(handler);
+
+  // `socket1` should remain open, so we can use it to send another
+  // message successfully.
+  EXPECT_CALL(process, handler(_, _))
+    .WillOnce(FutureSatisfy(&handler));
+
+  AWAIT_READY(socket1.send(data1));
+
+  AWAIT_READY(handler);
+
+  terminate(process);
+  wait(process);
+}
+
+
 class OrderRecvProcess : public Process<OrderRecvProcess>
 {
 public:
   OrderRecvProcess()
-    : lastRequestSeqno(0) {}
+    : lastRequestSeqno(0)
+  {
+    spawn(this);
+  }
 
-  virtual ~OrderRecvProcess() {}
+  virtual ~OrderRecvProcess()
+  {
+    terminate(self());
+    wait(self());
+  }
 
 protected:
   virtual void initialize()
@@ -1590,9 +1738,16 @@ private:
 class OrderSendProcess : public Process<OrderSendProcess>
 {
 public:
-  OrderSendProcess() {}
+  OrderSendProcess()
+  {
+    spawn(this);
+  }
 
-  virtual ~OrderSendProcess() {}
+  virtual ~OrderSendProcess()
+  {
+    terminate(self());
+    wait(self());
+  }
 
 protected:
   virtual void initialize()
@@ -1640,28 +1795,20 @@ TEST(ProcessTest, EphemeralMessageOrdering)
   Clock::pause();
 
   OrderRecvProcess recv;
-  UPID recvPid = spawn(&recv);
-
   OrderSendProcess sender;
-  UPID sendPid = spawn(&sender);
 
-  LOG(INFO) << "recvPid = " << recvPid << "; sendPid = " << sendPid;
+  LOG(INFO) << "recvPid = " << recv.self()
+            << "; sendPid = " << sender.self();
   LOG(INFO) << "recv addr = " << &recv << "; send addr = " << &sender;
 
-  string query = "&target=" + stringify(recvPid);
+  string query = "&target=" + stringify(recv.self());
 
   Future<http::Response> response = http::get(
       sender.self(),
       "run",
-      "&target=" + stringify(recvPid));
+      "&target=" + stringify(recv.self()));
 
   AWAIT_READY(response);
-
-  terminate(sender);
-  wait(sender);
-
-  terminate(recv);
-  wait(recv);
 
   Clock::resume();
 }
