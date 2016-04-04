@@ -1286,6 +1286,12 @@ void SocketManager::accepted(const Socket& socket)
   synchronized (mutex) {
     sockets[socket] = new Socket(socket);
   }
+
+  Try<Address> peer = socket.peer();
+  if (!peer.isError()) {
+    LOG(INFO) << "Accepted new socket (" << socket.get()
+              << ") from " << peer.get();
+  }
 }
 
 
@@ -1330,7 +1336,7 @@ void SocketManager::link_connect(
 {
   if (future.isDiscarded() || future.isFailed()) {
     if (future.isFailed()) {
-      VLOG(1) << "Failed to link, connect: " << future.failure();
+      LOG(INFO) << "Failed to link, connect: " << future.failure();
     }
 
     // Check if SSL is enabled, and whether we allow a downgrade to
@@ -1387,6 +1393,8 @@ void SocketManager::link_connect(
 
     return;
   }
+
+  LOG(INFO) << "Established link to " << to;
 
   size_t size = 80 * 1024;
   char* data = new char[size];
@@ -2155,6 +2163,7 @@ ProcessManager::ProcessManager(const Option<string>& _delegate)
 ProcessManager::~ProcessManager()
 {
   ProcessBase* process = NULL;
+
   // Terminate the first process in the queue. Events are deleted
   // and the process is erased in ProcessManager::cleanup(). Don't
   // hold the lock or process the whole map as terminating one process
@@ -2301,6 +2310,9 @@ void ProcessManager::handle(const Socket& socket, Request* request)
 
     // TODO(benh): Use the sender PID when delivering in order to
     // capture happens-before timing relationships for testing.
+    LOG(INFO) << "Delivering message via socket "
+              << socket.get() << " (sender = " << message->from
+              << "): " << message->body;
     bool accepted = deliver(message->to, new MessageEvent(message));
 
     // Get the HttpProxy pid for this socket.
