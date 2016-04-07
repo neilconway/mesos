@@ -1907,9 +1907,10 @@ Encoder* SocketManager::next(int s)
 
           dispose.erase(s);
 
-          // We don't expect outbound sockets to be assigned a
-          // sequence number.
-          CHECK(socket_seqno_table.count(s) == 0);
+          // TODO(neilc): Understand why this is correct.
+          if (socket_seqno_table.count(s) > 0) {
+            socket_seqno_table.erase(s);
+          }
 
           auto iterator = sockets.find(s);
 
@@ -1991,6 +1992,7 @@ void SocketManager::close(int s)
       }
 
       if (socket_seqno_table.count(s) > 0) {
+        LOG(INFO) << "ERASING " << s << " FROM socket_seqno_table";
         socket_seqno_table.erase(s);
       }
 
