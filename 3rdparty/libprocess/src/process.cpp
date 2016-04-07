@@ -317,6 +317,8 @@ public:
   void exited(const Address& address);
   void exited(ProcessBase* process);
 
+  uint64_t lookup_socket_seqno(const Socket& socket);
+
 private:
   // TODO(bmahler): Leverage a bidirectional multimap instead, or
   // hide the complexity of manipulating 'links' through methods.
@@ -374,6 +376,13 @@ private:
 
   // Map from outbound socket to outgoing queue.
   map<int, queue<Encoder*>> outgoing;
+
+  // Used to record the order in which inbound sockets are accepted.
+  // This is used to avoid delivering messages out-of-order.
+  uint64_t next_socket_seqno = 0;
+
+  // Map from inbound socket FDs to sequence numbers.
+  hashmap<int, uint64_t> socket_seqno_table;
 
   // HTTP proxies.
   map<int, HttpProxy*> proxies;
@@ -448,6 +457,21 @@ private:
 
   // Boolean used to signal processing threads to stop running.
   std::atomic_bool joining_threads;
+
+  // Map from sender addresses to sequence numbers. This contains the
+  // sequence number of the last socket that was used to deliver a
+  // message from this sender; this is used to detect (and avoid)
+  // out-of-order message deliveries. Note that "sender address" is the
+  // address contained in the sender's UPID -- that is, the IP/port to
+  // which the sending libprocess instance is listening on, which should
+  // uniquely identify the sender.
+  //
+  // TODO(neilc): We currently do not garbage collect this map.
+  // Determining when an entry can safely be removed from the map is
+  // slightly tricky: if any inbound sockets have connected but
+  // haven't delivered a message yet, technically we can't safely
+  // remove any elements of the map.
+  hashmap<Address, uint64_t> sender_seqno_table;
 
   // List of rules applied to all incoming HTTP requests.
   vector<Owned<firewall::FirewallRule>> firewallRules;
@@ -1281,10 +1305,22 @@ SocketManager::SocketManager() {}
 SocketManager::~SocketManager() {}
 
 
+uint64_t SocketManager::lookup_socket_seqno(const Socket& socket)
+{
+  synchronized (mutex) {
+    CHECK(socket_seqno_table.count(socket) > 0);
+    return socket_seqno_table[socket];
+  }
+}
+
+
 void SocketManager::accepted(const Socket& socket)
 {
   synchronized (mutex) {
     sockets[socket] = new Socket(socket);
+
+    CHECK(socket_seqno_table.count(socket) == 0);
+    socket_seqno_table[socket] = ++next_socket_seqno;
   }
 
   Try<Address> peer = socket.peer();
@@ -1871,6 +1907,10 @@ Encoder* SocketManager::next(int s)
 
           dispose.erase(s);
 
+          // We don't expect outbound sockets to be assigned a
+          // sequence number.
+          CHECK(socket_seqno_table.count(s) == 0);
+
           auto iterator = sockets.find(s);
 
           // We don't actually close the socket (we wait for the Socket
@@ -1948,6 +1988,10 @@ void SocketManager::close(int s)
       if (proxies.count(s) > 0) {
         proxy = proxies[s];
         proxies.erase(s);
+      }
+
+      if (socket_seqno_table.count(s) > 0) {
+        socket_seqno_table.erase(s);
       }
 
       dispose.erase(s);
@@ -2112,6 +2156,9 @@ void SocketManager::swap_implementing_socket(const Socket& from, Socket* to)
     // Make sure 'from' and 'to' are valid to swap.
     CHECK(sockets.count(from_fd) > 0);
     CHECK(sockets.count(to_fd) == 0);
+
+    // We don't expect to be invoked for inbound sockets.
+    CHECK(socket_seqno_table.count(from_fd) == 0);
 
     sockets.erase(from_fd);
     sockets[to_fd] = to;
@@ -2306,6 +2353,33 @@ void ProcessManager::handle(const Socket& socket, Request* request)
 
       delete request;
       return;
+    }
+
+    // Check whether we have delivered a message from the same
+    // libprocess instance via a different socket. If so, we might
+    // need to drop this message to avoid violating message ordering.
+    const Address& sender_address = message->from.address;
+    uint64_t sender_seqno = socket_manager->lookup_socket_seqno(socket);
+
+    if (sender_seqno_table.count(sender_address) == 0) {
+      // First message from this sender.
+      sender_seqno_table[sender_address] = sender_seqno;
+    } else {
+      uint64_t old_seqno = sender_seqno_table[sender_address];
+
+      if (old_seqno > sender_seqno) {
+        // Delivering `message` might violate libprocess's ordered
+        // delivery guarantee, so drop it. This should be fairly rare,
+        // so log a warning message. We could close `socket` here, but
+        // that is not required for correctness.
+        LOG(WARNING) << "Dropping message from " << message->from
+                     << " because it might have arrived out-of-order";
+
+        delete request;
+        return;
+      } else if (old_seqno < sender_seqno) {
+        sender_seqno_table[sender_address] = sender_seqno;
+      }
     }
 
     // TODO(benh): Use the sender PID when delivering in order to
