@@ -52,6 +52,7 @@
 #include <stout/numify.hpp>
 #include <stout/os.hpp>
 #include <stout/stopwatch.hpp>
+#include <stout/strings.hpp>
 #include <stout/stringify.hpp>
 #include <stout/try.hpp>
 
@@ -1713,17 +1714,18 @@ protected:
 private:
   void ping(const UPID& from, const string& body)
   {
-    Try<int> seqno = numify<int>(body);
+    vector<string> tokens = strings::split(body, "_");
+
+    Try<int> seqno = numify<int>(tokens[0]);
     if (seqno.isError()) {
       return;
     }
 
-#if 0
     LOG(INFO) << "Got ping: " << seqno.get();
-#endif
     CHECK(seqno.get() > lastRequestSeqno)
       << "Saw seqno: " << seqno.get()
-      << "; lastRequestSeqno: " << lastRequestSeqno;
+      << "; lastRequestSeqno: " << lastRequestSeqno
+      << "; message = '" << body << "'";
 
     lastRequestSeqno = seqno.get();
 
@@ -1767,9 +1769,12 @@ private:
       return http::BadRequest("Missing 'target' parameter");
     }
 
+    static int epoch = 0;
+    epoch++;
+
     UPID targetPid = UPID(target.get());
     for (int i = 1; i <= 100; i++) {
-      string body = stringify(i);
+      string body = stringify(i) + "_" + stringify(epoch);
       send(targetPid, "ping", body.c_str(), body.size());
       Clock::settle(true);
     }
