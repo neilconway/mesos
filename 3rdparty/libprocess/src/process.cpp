@@ -1695,8 +1695,8 @@ void SocketManager::send_connect(
 {
   if (future.isDiscarded() || future.isFailed()) {
     if (future.isFailed()) {
-      VLOG(1) << "Failed to send '" << message->name << "' to '"
-              << message->to.address << "', connect: " << future.failure();
+      LOG(INFO) << "Failed to connect/send '" << message->name << "' to '"
+                << message->to.address << "', connect: " << future.failure();
     }
 
     // Check if SSL is enabled, and whether we allow a downgrade to
@@ -1755,6 +1755,9 @@ void SocketManager::send_connect(
     delete message;
     return;
   }
+
+  LOG(INFO) << "New outbound socket connected: " << socket->get()
+            << ", for msg " << message->body;
 
   Encoder* encoder = new MessageEncoder(*socket, message);
 
@@ -2380,7 +2383,9 @@ void ProcessManager::handle(const Socket& socket, Request* request)
         // that is not required for correctness.
         LOG(WARNING) << "!!!!!!!!!!!! DROPPING message '"
                      << message->body << "' from " << message->from
-                     << " because it might have arrived out-of-order";
+                     << " (socket " << socket.get() << ", seqno "
+                     << sender_seqno
+                     << ") because it might have arrived out-of-order";
 
         delete request;
         return;

@@ -107,6 +107,8 @@ public:
       if (close.isError()) {
         ABORT("Failed to close socket " +
               stringify(s) + ": " + close.error());
+      } else {
+        LOG(INFO) << "Closed socket " << s << " successfully";
       }
     }
 
