@@ -2369,12 +2369,17 @@ void ProcessManager::handle(const Socket& socket, Request* request)
     } else {
       uint64_t old_seqno = sender_seqno_table[sender_address];
 
+      LOG(INFO) << "Sender: " << sender_address
+                << "; sender_seqno = " << sender_seqno
+                << "; old_seqno = " << old_seqno;
+
       if (old_seqno > sender_seqno) {
         // Delivering `message` might violate libprocess's ordered
         // delivery guarantee, so drop it. This should be fairly rare,
         // so log a warning message. We could close `socket` here, but
         // that is not required for correctness.
-        LOG(WARNING) << "Dropping message from " << message->from
+        LOG(WARNING) << "!!!!!!!!!!!! DROPPING message '"
+                     << message->body << "' from " << message->from
                      << " because it might have arrived out-of-order";
 
         delete request;
@@ -2388,7 +2393,7 @@ void ProcessManager::handle(const Socket& socket, Request* request)
     // capture happens-before timing relationships for testing.
     LOG(INFO) << "Delivering message via socket "
               << socket.get() << " (sender = " << message->from
-              << "): " << message->body;
+              << ", seqno = " << sender_seqno << "): " << message->body;
     bool accepted = deliver(message->to, new MessageEvent(message));
 
     // Get the HttpProxy pid for this socket.
