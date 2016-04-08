@@ -1321,12 +1321,13 @@ void SocketManager::accepted(const Socket& socket)
 
     CHECK(socket_seqno_table.count(socket) == 0);
     socket_seqno_table[socket] = ++next_socket_seqno;
-  }
 
-  Try<Address> peer = socket.peer();
-  if (!peer.isError()) {
-    LOG(INFO) << "Accepted new socket (" << socket.get()
-              << ") from " << peer.get();
+    Try<Address> peer = socket.peer();
+    if (!peer.isError()) {
+      LOG(INFO) << "Accepted new socket (" << socket.get()
+                << ", seqno " << socket_seqno_table[socket]
+                << ") from " << peer.get();
+    }
   }
 }
 
