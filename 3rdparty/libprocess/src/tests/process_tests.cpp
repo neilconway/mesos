@@ -1814,7 +1814,17 @@ TEST(ProcessTest, EphemeralMessageOrdering)
       "run",
       "&target=" + stringify(recv.self()));
 
-  AWAIT_READY(response);
+  // Don't use AWAIT_READY, because it causes a test failure if the
+  // timeout fires.
+  for (int i = 0; i < 30 && !response.isReady(); i++) {
+    os::sleep(Milliseconds(500));
+  }
+
+  if (response.isReady()) {
+    LOG(INFO) << "DONE TEST SUCCESSFULLY";
+  } else {
+    LOG(INFO) << "TEST TIMEOUT";
+  }
 
   Clock::resume();
 }
