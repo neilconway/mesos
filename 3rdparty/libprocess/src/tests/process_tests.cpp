@@ -1721,7 +1721,6 @@ private:
       return;
     }
 
-    LOG(INFO) << "Got ping: " << seqno.get();
     CHECK(seqno.get() > lastRequestSeqno)
       << "Saw seqno: " << seqno.get()
       << "; lastRequestSeqno: " << lastRequestSeqno
