@@ -1324,7 +1324,7 @@ void SocketManager::accepted(const Socket& socket)
 
     Try<Address> peer = socket.peer();
     if (!peer.isError()) {
-      LOG(INFO) << "Accepted new socket (" << socket.get()
+      LOG(INFO) << "Accepted new socket (fd " << socket.get()
                 << ", seqno " << socket_seqno_table[socket]
                 << ") from " << peer.get();
     }
@@ -1757,7 +1757,7 @@ void SocketManager::send_connect(
     return;
   }
 
-  LOG(INFO) << "New outbound socket connected: " << socket->get()
+  LOG(INFO) << "New outbound socket connected: fd " << socket->get()
             << ", for msg " << message->body;
 
   Encoder* encoder = new MessageEncoder(*socket, message);
