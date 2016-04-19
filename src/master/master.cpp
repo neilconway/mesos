@@ -1853,7 +1853,7 @@ Nothing Master::removeSlave(const Registry::Slave& slave)
     // registry is used in a write-only manner. Therefore we remove
     // the slave from the registry but we do not inform the
     // framework.
-    const string& message =
+    const string message =
       "Failed to remove agent " + stringify(slave.info().id());
 
     registrar->apply(Owned<Operation>(new RemoveSlave(slave.info())))
@@ -5821,7 +5821,7 @@ void Master::_authenticate(
     const Future<Option<string>>& future)
 {
   if (!future.isReady() || future.get().isNone()) {
-    const string& error = future.isReady()
+    const string error = future.isReady()
         ? "Refused authentication"
         : (future.isFailed() ? future.failure() : "future discarded");
 

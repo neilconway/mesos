@@ -105,7 +105,7 @@ TEST_F(MasterContenderDetectorTest, File)
   // detector for the master first.
   slave::Flags flags = CreateSlaveFlags();
 
-  const string& path = path::join(flags.work_dir, "master");
+  const string path = path::join(flags.work_dir, "master");
   ASSERT_SOME(os::write(path, stringify(master.get()->pid)));
 
   Try<MasterDetector*> _detector =

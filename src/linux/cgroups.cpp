@@ -483,7 +483,7 @@ Try<string> prepare(
 
   // Test for nested cgroup support.
   // TODO(jieyu): Consider doing this test only once.
-  const string& testCgroup = path::join(cgroup, "test");
+  const string testCgroup = path::join(cgroup, "test");
 
   // Create a nested test cgroup if it doesn't exist.
   exists = cgroups::exists(hierarchy.get(), testCgroup);

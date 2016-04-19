@@ -906,7 +906,7 @@ TEST_F(FetcherTest, HdfsURI)
   ASSERT_SOME(os::mkdir(hadoopBinPath));
   ASSERT_SOME(os::chmod(hadoopBinPath, S_IRWXU | S_IRWXG | S_IRWXO));
 
-  const string& proof = path::join(hadoopPath, "proof");
+  const string proof = path::join(hadoopPath, "proof");
 
   // This acts exactly as "hadoop" for testing purposes. On some platforms, the
   // "hadoop" wrapper command will emit a warning that Hadoop installation has

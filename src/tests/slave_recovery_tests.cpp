@@ -115,7 +115,7 @@ TEST_F(SlaveStateTest, CheckpointProtobufMessage)
   SlaveID expected;
   expected.set_value("agent1");
 
-  const string& file = "slave.id";
+  const string file = "slave.id";
   slave::state::checkpoint(file, expected);
 
   const Result<SlaveID>& actual = ::protobuf::read<SlaveID>(file);

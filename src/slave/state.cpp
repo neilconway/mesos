@@ -91,7 +91,7 @@ Result<State> recover(const string& rootDir, bool strict)
     }
   }
 
-  const string& latest = paths::getLatestSlavePath(rootDir);
+  const string latest = paths::getLatestSlavePath(rootDir);
 
   // Check if the "latest" symlink to a slave directory exists.
   if (!os::exists(latest)) {
@@ -144,7 +144,7 @@ Try<SlaveState> SlaveState::recover(
   const Result<SlaveInfo>& slaveInfo = ::protobuf::read<SlaveInfo>(path);
 
   if (slaveInfo.isError()) {
-    const string& message = "Failed to read agent info from '" + path + "': " +
+    const string message = "Failed to read agent info from '" + path + "': " +
                             slaveInfo.error();
     if (strict) {
       return Error(message);
@@ -371,7 +371,7 @@ Try<ExecutorState> ExecutorState::recover(
   }
 
   // Read the executor info.
-  const string& path =
+  const string path =
     paths::getExecutorInfoPath(rootDir, slaveId, frameworkId, executorId);
   if (!os::exists(path)) {
     // This could happen if the slave died after creating the executor
@@ -692,7 +692,7 @@ Try<ResourcesState> ResourcesState::recover(
 {
   ResourcesState state;
 
-  const string& path = paths::getResourcesInfoPath(rootDir);
+  const string path = paths::getResourcesInfoPath(rootDir);
   if (!os::exists(path)) {
     LOG(INFO) << "No checkpointed resources found at '" << path << "'";
     return state;

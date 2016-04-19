@@ -99,7 +99,7 @@ master::Flags MesosTest::CreateMasterFlags()
   flags.http_framework_authenticators = "basic";
 
   // Create a default credentials file.
-  const string& path = path::join(os::getcwd(), "credentials");
+  const string path = path::join(os::getcwd(), "credentials");
 
   Try<int> fd = os::open(
       path,
@@ -156,7 +156,7 @@ slave::Flags MesosTest::CreateSlaveFlags()
 
   {
     // Create a default credential file for master/agent authentication.
-    const string& path = path::join(directory.get(), "credential");
+    const string path = path::join(directory.get(), "credential");
 
     Try<int> fd = os::open(
         path,
@@ -181,7 +181,7 @@ slave::Flags MesosTest::CreateSlaveFlags()
 
   {
     // Create a default HTTP credentials file.
-    const string& path = path::join(directory.get(), "http_credentials");
+    const string path = path::join(directory.get(), "http_credentials");
 
     Try<int> fd = os::open(
         path,

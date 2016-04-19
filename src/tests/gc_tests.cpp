@@ -88,9 +88,9 @@ TEST_F(GarbageCollectorTest, Schedule)
   GarbageCollector gc;
 
   // Make some temporary files to gc.
-  const string& file1 = "file1";
-  const string& file2 = "file2";
-  const string& file3 = "file3";
+  const string file1 = "file1";
+  const string file2 = "file2";
+  const string file3 = "file3";
 
   ASSERT_SOME(os::touch(file1));
   ASSERT_SOME(os::touch(file2));
@@ -152,9 +152,9 @@ TEST_F(GarbageCollectorTest, Unschedule)
   AWAIT_ASSERT_FALSE(gc.unschedule("bogus"));
 
   // Make some temporary files to gc.
-  const string& file1 = "file1";
-  const string& file2 = "file2";
-  const string& file3 = "file3";
+  const string file1 = "file1";
+  const string file2 = "file2";
+  const string file3 = "file3";
 
   ASSERT_SOME(os::touch(file1));
   ASSERT_SOME(os::touch(file2));
@@ -198,10 +198,10 @@ TEST_F(GarbageCollectorTest, Prune)
   GarbageCollector gc;
 
   // Make some temporary files to prune.
-  const string& file1 = "file1";
-  const string& file2 = "file2";
-  const string& file3 = "file3";
-  const string& file4 = "file4";
+  const string file1 = "file1";
+  const string file2 = "file2";
+  const string file3 = "file3";
+  const string file4 = "file4";
 
   ASSERT_SOME(os::touch(file1));
   ASSERT_SOME(os::touch(file2));

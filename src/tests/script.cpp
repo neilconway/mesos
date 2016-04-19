@@ -120,10 +120,10 @@ void execute(const string& script)
     os::setenv("MESOS_AUTHENTICATE", "true");
 
     // Create test credentials.
-    const string& credentials =
+    const string credentials =
       DEFAULT_CREDENTIAL.principal() + " " + DEFAULT_CREDENTIAL.secret();
 
-    const string& credentialsPath =
+    const string credentialsPath =
       path::join(directory.get(), "credentials");
 
     CHECK_SOME(os::write(credentialsPath, credentials))
@@ -155,7 +155,7 @@ void execute(const string& script)
     register_->mutable_principals()->add_values(DEFAULT_CREDENTIAL.principal());
     register_->mutable_roles()->add_values("*");
 
-    const string& aclsPath = path::join(directory.get(), "acls");
+    const string aclsPath = path::join(directory.get(), "acls");
 
     CHECK_SOME(os::write(aclsPath, stringify(JSON::protobuf(acls))))
       << "Failed to write ACLs to '" << aclsPath << "'";
