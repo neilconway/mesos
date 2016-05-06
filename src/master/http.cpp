@@ -1625,6 +1625,7 @@ struct TaskStateSummary
       killed(0),
       failed(0),
       lost(0),
+      gone(0),
       error(0) {}
 
   // Account for the state of the given task.
@@ -1639,6 +1640,7 @@ struct TaskStateSummary
       case TASK_KILLED: { ++killed; break; }
       case TASK_FAILED: { ++failed; break; }
       case TASK_LOST: { ++lost; break; }
+      case TASK_GONE: { ++gone; break; }
       case TASK_ERROR: { ++error; break; }
       // No default case allows for a helpful compiler error if we
       // introduce a new state.
@@ -1653,6 +1655,7 @@ struct TaskStateSummary
   size_t killed;
   size_t failed;
   size_t lost;
+  size_t gone;
   size_t error;
 };
 
@@ -1777,6 +1780,7 @@ Future<Response> Master::Http::stateSummary(
           writer->field("TASK_KILLED", summary.killed);
           writer->field("TASK_FAILED", summary.failed);
           writer->field("TASK_LOST", summary.lost);
+          writer->field("TASK_GONE", summary.gone);
           writer->field("TASK_ERROR", summary.error);
 
           // Add the ids of all the frameworks running on this slave.
@@ -1819,6 +1823,7 @@ Future<Response> Master::Http::stateSummary(
           writer->field("TASK_KILLED", summary.killed);
           writer->field("TASK_FAILED", summary.failed);
           writer->field("TASK_LOST", summary.lost);
+          writer->field("TASK_GONE", summary.gone);
           writer->field("TASK_ERROR", summary.error);
 
           // Add the ids of all the slaves running this framework.

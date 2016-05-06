@@ -1313,10 +1313,31 @@ enum TaskState {
   // the TASK_KILLING_STATE capability.
   TASK_KILLING = 8;  // The task is being killed by the executor.
 
+  // TASK_LOST indicates that the task was running on an agent that has
+  // been removed from the cluster (e.g., it has failed health checks
+  // because of a network partition). The task may still be running.
+  //
+  // When using a strict registry, a LOST task will never transition
+  // back to RUNNING; it may transition to GONE if Mesos can confirm
+  // that the task has been terminated. When using a non-strict
+  // registry, a LOST task may transition to RUNNING (if the agent is
+  // allowed to reregister), or GONE (if the agent is refused
+  // reregistration and the master confirms it has shutdown). Note
+  // that LOST tasks may remain lost for an unbounded length of time;
+  // the /agent/gone endpoint can be used to mark LOST agents as GONE,
+  // if the operator can guarantee that they have indeed stopped
+  // running.
+  TASK_LOST = 5;
+
+  // TASK_GONE indicates that the task is not running. This is used in
+  // two situations: (a) when a LOST task has been confirmed as
+  // terminated (b) when a task launch fails due to a transient error
+  // (e.g., insufficient available resources).
+  TASK_GONE = 9;     // TERMINAL.
+
   TASK_FINISHED = 2; // TERMINAL: The task finished successfully.
   TASK_FAILED = 3;   // TERMINAL: The task failed to finish successfully.
   TASK_KILLED = 4;   // TERMINAL: The task was killed by the executor.
-  TASK_LOST = 5;     // TERMINAL: The task failed but can be rescheduled.
   TASK_ERROR = 7;    // TERMINAL: The task description contains an error.
 }
 
