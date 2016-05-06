@@ -380,7 +380,7 @@ TEST_F(ReconciliationTest, UnknownKillTask)
 
 
 // This test verifies that reconciliation of a task that belongs to a
-// slave that is a transitional state doesn't result in an update.
+// slave that is in a transitional state doesn't result in an update.
 TEST_F(ReconciliationTest, SlaveInTransition)
 {
   master::Flags masterFlags = CreateMasterFlags();
