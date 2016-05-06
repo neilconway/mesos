@@ -65,6 +65,7 @@ struct Metrics
   process::metrics::Counter tasks_failed;
   process::metrics::Counter tasks_killed;
   process::metrics::Counter tasks_lost;
+  process::metrics::Counter tasks_gone;
   process::metrics::Counter tasks_error;
 
   typedef hashmap<TaskStatus::Reason, process::metrics::Counter> Reasons;
