@@ -247,6 +247,7 @@
     $scope.killed_tasks = metrics['master/tasks_killed'];
     $scope.failed_tasks = metrics['master/tasks_failed'];
     $scope.lost_tasks = metrics['master/tasks_lost'];
+    $scope.gone_tasks = metrics['master/tasks_gone'];
 
     return true; // Continue polling.
   }
@@ -554,6 +555,7 @@
           $scope.state.killed_tasks = response['slave/tasks_killed'];
           $scope.state.failed_tasks = response['slave/tasks_failed'];
           $scope.state.lost_tasks = response['slave/tasks_lost'];
+          $scope.state.gone_tasks = response['slave/tasks_gone'];
         })
         .error(function(reason) {
           $scope.alert_message = 'Failed to get slave metrics: ' + reason;
