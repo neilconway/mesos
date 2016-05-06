@@ -299,7 +299,7 @@ void Slave::initialize()
           }
         }
 
-        LOG(INFO) << "A agent (or child process) is still running, please"
+        LOG(INFO) << "An agent (or child process) is still running, please"
                   << " consider checking the following process(es) listed in "
                   << path::join(hierarchy.get(), cgroup, "cgroups.proc")
                   << ":\n" << strings::join("\n", infos);
