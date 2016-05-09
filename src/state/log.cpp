@@ -233,7 +233,7 @@ LogStorageProcess::~LogStorageProcess() {}
 void LogStorageProcess::finalize()
 {
   if (starting.isSome()) {
-    Future<Nothing>(starting.get()).discard();
+    starting->discard();
   }
 }
 

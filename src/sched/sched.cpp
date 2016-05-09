@@ -115,8 +115,6 @@ using std::weak_ptr;
 
 using process::wait; // Necessary on some OS's to disambiguate.
 
-using utils::copy;
-
 namespace mesos {
 namespace internal {
 
@@ -376,7 +374,7 @@ protected:
       // are here, making the 'discard' here a no-op. This is ok
       // because we set 'reauthenticate' here which enforces a retry
       // in '_authenticate'.
-      copy(authenticating.get()).discard();
+      authenticating->discard();
       reauthenticate = true;
       return;
     }
