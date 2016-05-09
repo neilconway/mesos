@@ -274,6 +274,10 @@ message FrameworkInfo {
       // killed by an executor. The executor will examine this
       // capability to determine whether it can send TASK_KILLING.
       TASK_KILLING_STATE = 2;
+
+      // Receive the TASK_GONE TaskState. See notes above for the
+      // situations in which TASK_GONE will be sent.
+      TASK_GONE_STATE = 3;
     }
 
     // Enum fields should be optional, see: MESOS-4997.
@@ -1337,6 +1341,11 @@ enum TaskState {
   // two situations: (a) when a LOST task has been confirmed as
   // terminated (b) when a task launch fails due to a transient error
   // (e.g., insufficient available resources).
+  //
+  // NOTE: This state will only be sent to frameworks that have the
+  // TASK_GONE_STATE capability. Frameworks without this capability
+  // will receive no message in case (a) above; in case (b), they will
+  // receive TASK_LOST instead.
   TASK_GONE = 9;     // TERMINAL.
 
   TASK_FINISHED = 2; // TERMINAL: The task finished successfully.
