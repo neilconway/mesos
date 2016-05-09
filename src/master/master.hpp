@@ -1620,7 +1620,8 @@ private:
 };
 
 
-// Implementation of slave removal Registrar operation.
+// Implementation of slave removal Registrar operation. The slave is
+// moved from the "slaves" list to the "removed_slaves" list.
 class RemoveSlave : public Operation
 {
 public:
@@ -1638,6 +1639,10 @@ protected:
     for (int i = 0; i < registry->slaves().slaves().size(); i++) {
       const Registry::Slave& slave = registry->slaves().slaves(i);
       if (slave.info().id() == info.id()) {
+        Registry::Slave* newSlave =
+          registry->mutable_removed_slaves()->add_slaves();
+        newSlave->CopyFrom(slave);
+
         registry->mutable_slaves()->mutable_slaves()->DeleteSubrange(i, 1);
         slaveIDs->erase(info.id());
         return true; // Mutation.
