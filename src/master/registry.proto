@@ -63,6 +63,17 @@ message Registry {
   // All admitted slaves.
   optional Slaves slaves = 2;
 
+  // Slaves that have been removed from the cluster ("lost"), but
+  // which might still be running. Entries are deleted from this list
+  // in the following situations:
+  //
+  //   (1) Slave attempts to reregister and is refused and shuts down.
+  //   (2) Slave attempts to reregister and is allowed (because a
+  //       non-strict registry is in use).
+  //   (3) Operator uses the /agent/gone endpoint to guarantee that
+  //       the slave is gone
+  optional Slaves removed_slaves = 7;
+
   // Holds a list of machines and some status information about each.
   // See comments in `MachineInfo` for more information.
   optional Machines machines = 3;
