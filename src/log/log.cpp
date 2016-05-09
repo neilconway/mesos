@@ -122,8 +122,7 @@ void LogProcess::finalize()
 {
   if (recovering.isSome()) {
     // Stop the recovery if it is still pending.
-    Future<Owned<Replica> > future = recovering.get();
-    future.discard();
+    recovering->discard();
   }
 
   // If there exist operations that are gated by the recovery, we fail

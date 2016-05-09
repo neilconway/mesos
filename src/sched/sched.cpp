@@ -69,7 +69,6 @@
 #include <stout/option.hpp>
 #include <stout/os.hpp>
 #include <stout/stopwatch.hpp>
-#include <stout/utils.hpp>
 #include <stout/uuid.hpp>
 
 #include "authentication/cram_md5/authenticatee.hpp"
@@ -114,8 +113,6 @@ using std::vector;
 using std::weak_ptr;
 
 using process::wait; // Necessary on some OS's to disambiguate.
-
-using utils::copy;
 
 namespace mesos {
 namespace internal {
@@ -386,7 +383,7 @@ protected:
       // are here, making the 'discard' here a no-op. This is ok
       // because we set 'reauthenticate' here which enforces a retry
       // in '_authenticate'.
-      copy(authenticating.get()).discard();
+      authenticating->discard();
       reauthenticate = true;
       return;
     }
