@@ -32,6 +32,8 @@
 #include <stout/stopwatch.hpp>
 #include <stout/stringify.hpp>
 
+#include "common/protobuf_utils.hpp"
+
 using std::string;
 using std::vector;
 
@@ -251,13 +253,8 @@ void HierarchicalAllocatorProcess::addFramework(
   frameworks[frameworkId].role = frameworkInfo.role();
 
   // Check if the framework desires revocable resources.
-  frameworks[frameworkId].revocable = false;
-  foreach (const FrameworkInfo::Capability& capability,
-           frameworkInfo.capabilities()) {
-    if (capability.type() == FrameworkInfo::Capability::REVOCABLE_RESOURCES) {
-      frameworks[frameworkId].revocable = true;
-    }
-  }
+  frameworks[frameworkId].revocable = protobuf::frameworkHasCapability(
+      frameworkInfo, FrameworkInfo::Capability::REVOCABLE_RESOURCES);
 
   frameworks[frameworkId].suppressed = false;
 
@@ -388,14 +385,8 @@ void HierarchicalAllocatorProcess::updateFramework(
   // progress on allowing these fields to be updated.
   CHECK_EQ(frameworks[frameworkId].role, frameworkInfo.role());
 
-  frameworks[frameworkId].revocable = false;
-
-  foreach (const FrameworkInfo::Capability& capability,
-           frameworkInfo.capabilities()) {
-    if (capability.type() == FrameworkInfo::Capability::REVOCABLE_RESOURCES) {
-      frameworks[frameworkId].revocable = true;
-    }
-  }
+  frameworks[frameworkId].revocable = protobuf::frameworkHasCapability(
+      frameworkInfo, FrameworkInfo::Capability::REVOCABLE_RESOURCES);
 }
 
 

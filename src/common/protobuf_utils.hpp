@@ -45,6 +45,10 @@ namespace mesos {
 namespace internal {
 namespace protobuf {
 
+bool frameworkHasCapability(const FrameworkInfo& framework,
+                            FrameworkInfo::Capability::Type capability);
+
+
 bool isTerminalState(const TaskState& state);
 
 

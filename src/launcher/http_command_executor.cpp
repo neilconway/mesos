@@ -599,6 +599,7 @@ private:
       CHECK_SOME(taskId);
       CHECK(taskId.get() == _taskId);
 
+      // TODO(neilc): Use `protobuf::frameworkHasCapability()`.
       foreach (const FrameworkInfo::Capability& c,
                frameworkInfo->capabilities()) {
         if (c.type() == FrameworkInfo::Capability::TASK_KILLING_STATE) {
