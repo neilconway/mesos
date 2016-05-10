@@ -334,7 +334,8 @@ TEST_F(ReconciliationTest, UnknownSlaveTaskGone)
 
 
 // This test verifies that reconciliation of an unknown task that
-// belongs to a known slave results in TASK_LOST.
+// belongs to a known slave results in TASK_LOST if the framework does
+// not support the TASK_GONE_STATE capability.
 TEST_F(ReconciliationTest, UnknownTask)
 {
   Try<Owned<cluster::Master>> master = StartMaster();
@@ -383,7 +384,8 @@ TEST_F(ReconciliationTest, UnknownTask)
 
   driver.reconcileTasks(statuses);
 
-  // Framework should receive TASK_LOST for unknown task.
+  // Framework should receive TASK_LOST for unknown task and the
+  // framework has not advertised support for TASK_GONE.
   AWAIT_READY(update);
   EXPECT_EQ(TASK_LOST, update.get().state());
 
