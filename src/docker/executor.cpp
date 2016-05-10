@@ -32,6 +32,7 @@
 #include <stout/os.hpp>
 
 #include "common/status_utils.hpp"
+#include "common/protobuf_utils.hpp"
 
 #include "docker/docker.hpp"
 #include "docker/executor.hpp"
@@ -297,15 +298,13 @@ private:
       CHECK_SOME(taskId);
       CHECK(taskId.get() == _taskId);
 
-      foreach (const FrameworkInfo::Capability& c,
-               frameworkInfo->capabilities()) {
-        if (c.type() == FrameworkInfo::Capability::TASK_KILLING_STATE) {
-          TaskStatus status;
-          status.mutable_task_id()->CopyFrom(taskId.get());
-          status.set_state(TASK_KILLING);
-          driver->sendStatusUpdate(status);
-          break;
-        }
+      if (protobuf::frameworkHasCapability(
+            frameworkInfo.get(),
+            FrameworkInfo::Capability::TASK_KILLING_STATE)) {
+        TaskStatus status;
+        status.mutable_task_id()->CopyFrom(taskId.get());
+        status.set_state(TASK_KILLING);
+        driver->sendStatusUpdate(status);
       }
 
       // The docker daemon might still be in progress starting the

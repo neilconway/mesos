@@ -49,6 +49,7 @@
 
 #include "common/http.hpp"
 #include "common/status_utils.hpp"
+#include "common/protobuf_utils.hpp"
 
 #ifdef __linux__
 #include "linux/fs.hpp"
@@ -171,7 +172,7 @@ public:
         abort();
       }
 
-      Try<CommandInfo> parse = protobuf::parse<CommandInfo>(object.get());
+      Try<CommandInfo> parse = ::protobuf::parse<CommandInfo>(object.get());
       if (parse.isError()) {
         cerr << "Failed to parse protobuf: " << parse.error() << endl;
         abort();
@@ -521,15 +522,13 @@ private:
       CHECK_SOME(taskId);
       CHECK(taskId.get() == _taskId);
 
-      foreach (const FrameworkInfo::Capability& c,
-               frameworkInfo->capabilities()) {
-        if (c.type() == FrameworkInfo::Capability::TASK_KILLING_STATE) {
-          TaskStatus status;
-          status.mutable_task_id()->CopyFrom(taskId.get());
-          status.set_state(TASK_KILLING);
-          driver->sendStatusUpdate(status);
-          break;
-        }
+      if (protobuf::frameworkHasCapability(
+            frameworkInfo.get(),
+            FrameworkInfo::Capability::TASK_KILLING_STATE)) {
+        TaskStatus status;
+        status.mutable_task_id()->CopyFrom(taskId.get());
+        status.set_state(TASK_KILLING);
+        driver->sendStatusUpdate(status);
       }
 
       // Now perform signal escalation to begin killing the task.
