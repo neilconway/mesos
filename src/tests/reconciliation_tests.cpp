@@ -224,7 +224,8 @@ TEST_F(ReconciliationTest, TaskStateMatch)
 
 
 // This test verifies that reconciliation of a task that belongs to an
-// unknown slave results in TASK_LOST.
+// unknown slave results in TASK_LOST if the framework does not
+// support the TASK_GONE_STATE capability.
 TEST_F(ReconciliationTest, UnknownSlave)
 {
   Try<Owned<cluster::Master>> master = StartMaster();
@@ -254,7 +255,8 @@ TEST_F(ReconciliationTest, UnknownSlave)
 
   driver.reconcileTasks({status});
 
-  // Framework should receive TASK_LOST because the slave is unknown.
+  // Framework should receive TASK_LOST because the slave is unknown
+  // and the framework has not advertised support for TASK_GONE.
   AWAIT_READY(update);
   EXPECT_EQ(TASK_LOST, update.get().state());
 
@@ -263,8 +265,57 @@ TEST_F(ReconciliationTest, UnknownSlave)
 }
 
 
+// This test verifies that reconciliation of a task that belongs to an
+// unknown slave results in TASK_GONE if the framework supports the
+// TASK_GONE_STATE capability.
+TEST_F(ReconciliationTest, UnknownSlaveTaskGone)
+{
+  Try<Owned<cluster::Master>> master = StartMaster();
+  ASSERT_SOME(master);
+
+  // Start the framework with the TASK_GONE_STATE capability.
+  FrameworkInfo::Capability capability;
+  capability.set_type(FrameworkInfo::Capability::TASK_GONE_STATE);
+
+  FrameworkInfo frameworkInfo = DEFAULT_FRAMEWORK_INFO;
+  frameworkInfo.add_capabilities()->CopyFrom(capability);
+
+  MockScheduler sched;
+  MesosSchedulerDriver driver(
+    &sched, frameworkInfo, master.get()->pid, DEFAULT_CREDENTIAL);
+
+  Future<FrameworkID> frameworkId;
+  EXPECT_CALL(sched, registered(&driver, _, _))
+    .WillOnce(FutureArg<1>(&frameworkId));
+
+  driver.start();
+
+  // Wait until the framework is registered.
+  AWAIT_READY(frameworkId);
+
+  Future<TaskStatus> update;
+  EXPECT_CALL(sched, statusUpdate(&driver, _))
+    .WillOnce(FutureArg<1>(&update));
+
+  // Create a task status with a random slave id (and task id).
+  TaskStatus status;
+  status.mutable_task_id()->set_value(UUID::random().toString());
+  status.mutable_slave_id()->set_value(UUID::random().toString());
+
+  driver.reconcileTasks({status});
+
+  // Framework should receive TASK_GONE because the slave is unknown.
+  AWAIT_READY(update);
+  EXPECT_EQ(TASK_GONE, update.get().state());
+
+  driver.stop();
+  driver.join();
+}
+
+
 // This test verifies that reconciliation of an unknown task that
-// belongs to a known slave results in TASK_LOST.
+// belongs to a known slave results in TASK_LOST if the framework does
+// not support the TASK_GONE_STATE capability.
 TEST_F(ReconciliationTest, UnknownTask)
 {
   Try<Owned<cluster::Master>> master = StartMaster();
@@ -308,9 +359,72 @@ TEST_F(ReconciliationTest, UnknownTask)
 
   driver.reconcileTasks({status});
 
-  // Framework should receive TASK_LOST for unknown task.
+  // Framework should receive TASK_LOST for an unknown task if the
+  // framework has not advertised support for TASK_GONE.
   AWAIT_READY(update);
   EXPECT_EQ(TASK_LOST, update.get().state());
+
+  driver.stop();
+  driver.join();
+}
+
+
+// This test verifies that reconciliation of an unknown task that
+// belongs to a known slave results in TASK_GONE if the framework
+// supports the TASK_GONE_STATE capability.
+TEST_F(ReconciliationTest, UnknownTaskGone)
+{
+  Try<Owned<cluster::Master>> master = StartMaster();
+  ASSERT_SOME(master);
+
+  Future<SlaveRegisteredMessage> slaveRegisteredMessage =
+    FUTURE_PROTOBUF(SlaveRegisteredMessage(), _, _);
+
+  Owned<MasterDetector> detector = master.get()->createDetector();
+  Try<Owned<cluster::Slave>> slave = StartSlave(detector.get());
+  ASSERT_SOME(slave);
+
+  // Wait for the slave to register and get the slave id.
+  AWAIT_READY(slaveRegisteredMessage);
+  const SlaveID slaveId = slaveRegisteredMessage.get().slave_id();
+
+  // Start the framework with the TASK_GONE_STATE capability.
+  FrameworkInfo::Capability capability;
+  capability.set_type(FrameworkInfo::Capability::TASK_GONE_STATE);
+
+  FrameworkInfo frameworkInfo = DEFAULT_FRAMEWORK_INFO;
+  frameworkInfo.add_capabilities()->CopyFrom(capability);
+
+  MockScheduler sched;
+  MesosSchedulerDriver driver(
+    &sched, frameworkInfo, master.get()->pid, DEFAULT_CREDENTIAL);
+
+  Future<FrameworkID> frameworkId;
+  EXPECT_CALL(sched, registered(&driver, _, _))
+    .WillOnce(FutureArg<1>(&frameworkId));
+
+  EXPECT_CALL(sched, resourceOffers(&driver, _))
+    .WillRepeatedly(Return()); // Ignore offers.
+
+  driver.start();
+
+  // Wait until the framework is registered.
+  AWAIT_READY(frameworkId);
+
+  Future<TaskStatus> update;
+  EXPECT_CALL(sched, statusUpdate(&driver, _))
+    .WillOnce(FutureArg<1>(&update));
+
+  // Create a task status with a random task id.
+  TaskStatus status;
+  status.mutable_task_id()->set_value(UUID::random().toString());
+  status.mutable_slave_id()->CopyFrom(slaveId);
+
+  driver.reconcileTasks({status});
+
+  // Framework should receive TASK_GONE for unknown task.
+  AWAIT_READY(update);
+  EXPECT_EQ(TASK_GONE, update.get().state());
 
   driver.stop();
   driver.join();
