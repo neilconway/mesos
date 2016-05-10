@@ -755,6 +755,8 @@ int main(int argc, char** argv)
   frameworkInfo.set_role(flags.role);
   frameworkInfo.set_checkpoint(flags.checkpoint);
   frameworkInfo.add_capabilities()->set_type(
+      FrameworkInfo::Capability::TASK_GONE_STATE);
+  frameworkInfo.add_capabilities()->set_type(
       FrameworkInfo::Capability::TASK_KILLING_STATE);
 
   Option<Credential> credential = None();
