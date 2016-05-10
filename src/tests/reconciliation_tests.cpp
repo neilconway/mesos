@@ -55,6 +55,7 @@ using mesos::master::detector::StandaloneMasterDetector;
 
 using process::Clock;
 using process::Future;
+using process::Message;
 using process::Owned;
 using process::PID;
 using process::Promise;
@@ -65,6 +66,7 @@ using testing::_;
 using testing::An;
 using testing::AtMost;
 using testing::DoAll;
+using testing::Eq;
 using testing::Return;
 using testing::SaveArg;
 
@@ -975,6 +977,104 @@ TEST_F(ReconciliationTest, ReconcileStatusUpdateTaskState)
 
   driver.stop();
   driver.join();
+}
+
+
+// This test verifies that when a slave is removed (e.g., due to a
+// network partition), reconciliation requests for any task ID on that
+// slave return TASK_LOST.
+TEST_F(ReconciliationTest, RemovedSlaveReconcileTask)
+{
+  master::Flags masterFlags = CreateMasterFlags();
+  Try<Owned<cluster::Master>> master = StartMaster(masterFlags);
+  ASSERT_SOME(master);
+
+  Future<SlaveRegisteredMessage> slaveRegisteredMessage =
+    FUTURE_PROTOBUF(SlaveRegisteredMessage(), _, _);
+
+  // Allow the master to PING the slave, but drop all PONG messages
+  // from the slave. Note that we don't match on the master / slave
+  // PIDs because it's actually the SlaveObserver Process that sends
+  // the pings.
+  Future<Message> ping = FUTURE_MESSAGE(
+      Eq(PingSlaveMessage().GetTypeName()), _, _);
+
+  DROP_PROTOBUFS(PongSlaveMessage(), _, _);
+
+  Owned<MasterDetector> detector = master.get()->createDetector();
+  Try<Owned<cluster::Slave>> slave = StartSlave(detector.get());
+  ASSERT_SOME(slave);
+
+  // Wait for the slave to register and get the slave id.
+  AWAIT_READY(slaveRegisteredMessage);
+  const SlaveID slaveId = slaveRegisteredMessage.get().slave_id();
+
+  MockScheduler sched;
+  MesosSchedulerDriver driver(
+      &sched, DEFAULT_FRAMEWORK_INFO, master.get()->pid, DEFAULT_CREDENTIAL);
+
+  Future<FrameworkID> frameworkId;
+  EXPECT_CALL(sched, registered(&driver, _, _))
+    .WillOnce(FutureArg<1>(&frameworkId));
+
+  EXPECT_CALL(sched, resourceOffers(&driver, _))
+    .WillRepeatedly(Return()); // Ignore offers.
+
+  driver.start();
+
+  // Wait until the framework is registered.
+  AWAIT_READY(frameworkId);
+
+  Clock::pause();
+
+  EXPECT_CALL(sched, offerRescinded(&driver, _))
+    .Times(AtMost(1));
+
+  Future<Nothing> slaveLost;
+  EXPECT_CALL(sched, slaveLost(&driver, _))
+    .WillOnce(FutureSatisfy(&slaveLost));
+
+  // Now advance through the PINGs.
+  size_t pings = 0;
+  while (true) {
+    AWAIT_READY(ping);
+    pings++;
+    if (pings == masterFlags.max_slave_ping_timeouts) {
+     break;
+    }
+    ping = FUTURE_MESSAGE(Eq(PingSlaveMessage().GetTypeName()), _, _);
+    Clock::advance(masterFlags.slave_ping_timeout);
+  }
+
+  Clock::advance(masterFlags.slave_ping_timeout);
+
+  AWAIT_READY(slaveLost);
+
+  Future<TaskStatus> update;
+  EXPECT_CALL(sched, statusUpdate(&driver, _))
+    .WillOnce(FutureArg<1>(&update));
+
+  // Reconcile the state of the task. Because the slave has been
+  // removed (but it hasn't been confirmed as being gone), we should
+  // see TASK_LOST for any TaskID on the slave.
+
+  // Create a task status with a task id.
+  TaskStatus status;
+  status.mutable_task_id()->set_value(UUID::random().toString());
+  status.mutable_slave_id()->CopyFrom(slaveId);
+
+  driver.reconcileTasks({status});
+
+  AWAIT_READY(update);
+  EXPECT_EQ(TASK_LOST, update.get().state());
+
+  slave.get()->terminate();
+  slave->reset();
+
+  driver.stop();
+  driver.join();
+
+  Clock::resume();
 }
 
 } // namespace tests {
