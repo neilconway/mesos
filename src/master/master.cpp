@@ -5397,16 +5397,20 @@ void Master::_reconcileTasks(
   // Explicit reconciliation occurs for the following cases:
   //   (1) Task is known, but pending: TASK_STAGING.
   //   (2) Task is known: send the latest state.
-  //   (3) Task is unknown, slave is registered: TASK_LOST.
+  //   (3) Task is unknown, slave is registered: TASK_GONE.
   //   (4) Task is unknown, slave is transitioning: no-op.
-  //   (5) Task is unknown, slave is unknown: TASK_LOST.
+  //   (5) Task is unknown, slave is pending-removal: TASK_LOST.
+  //   (6) Task is unknown, slave is unknown: TASK_GONE.
   //
-  // When using a non-strict registry, case (5) may result in
-  // a TASK_LOST for a task that may later be non-terminal. This
-  // is better than no reply at all because the framework can take
-  // action for TASK_LOST. Later, if the task is running, the
-  // framework can discover it with implicit reconciliation and will
-  // be able to kill it.
+  // We only send TASK_GONE if the framework has the TASK_GONE_STATE
+  // capability; otherwise TASK_LOST will be sent instead.
+  //
+  // When using a non-strict registry, cases (5) and (6) may result in
+  // a TASK_LOST/TASK_GONE for a task that may later be non-terminal.
+  // This is better than no reply at all because the framework can
+  // take action based on the status update. Later, if the task is
+  // running, the framework can discover it with implicit
+  // reconciliation and will be able to kill it.
   foreach (const TaskStatus& status, statuses) {
     Option<SlaveID> slaveId = None();
     if (status.has_slave_id()) {
@@ -5452,12 +5456,12 @@ void Master::_reconcileTasks(
           None(),
           protobuf::getTaskContainerStatus(*task));
     } else if (slaveId.isSome() && slaves.registered.contains(slaveId.get())) {
-      // (3) Task is unknown, slave is registered: TASK_LOST.
+      // (3) Task is unknown, slave is registered: TASK_GONE.
       update = protobuf::createStatusUpdate(
           framework->id(),
           slaveId.get(),
           status.task_id(),
-          TASK_LOST,
+          TASK_GONE,
           TaskStatus::SOURCE_MASTER,
           None(),
           "Reconciliation: Task is unknown to the agent",
@@ -5467,13 +5471,16 @@ void Master::_reconcileTasks(
       LOG(INFO) << "Dropping reconciliation of task " << status.task_id()
                 << " for framework " << *framework
                 << " because there are transitional agents";
+    } else if (false) {
+      // (5) Task is unknown, slave is pending-removal: TASK_LOST.
+      // TODO(neilc): Implement this.
     } else {
-      // (5) Task is unknown, slave is unknown: TASK_LOST.
+      // (6) Task is unknown, slave is unknown: TASK_GONE.
       update = protobuf::createStatusUpdate(
           framework->id(),
           slaveId,
           status.task_id(),
-          TASK_LOST,
+          TASK_GONE,
           TaskStatus::SOURCE_MASTER,
           None(),
           "Reconciliation: Task is unknown",
@@ -5481,6 +5488,18 @@ void Master::_reconcileTasks(
     }
 
     if (update.isSome()) {
+      // If the framework does not have the TASK_GONE_STATE
+      // capability, send TASK_LOST instead of TASK_GONE.
+      if (update->status().state() == TASK_GONE) {
+        bool supportsTaskGone = protobuf::frameworkHasCapability(
+            framework->info,
+            FrameworkInfo::Capability::TASK_GONE_STATE);
+
+        if (!supportsTaskGone) {
+          update->mutable_status()->set_state(TASK_LOST);
+        }
+      }
+
       VLOG(1) << "Sending explicit reconciliation state "
               << update.get().status().state()
               << " for task " << update.get().status().task_id()
