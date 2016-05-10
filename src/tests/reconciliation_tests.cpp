@@ -1009,9 +1009,18 @@ TEST_F(ReconciliationTest, RemovedSlaveReconcileTask)
   AWAIT_READY(slaveRegisteredMessage);
   const SlaveID slaveId = slaveRegisteredMessage.get().slave_id();
 
+  // Start the framework with the TASK_GONE_STATE capability. We do
+  // this to ensure that the master correctly sends TASK_LOST in this
+  // situation, even though the framework supports TASK_GONE.
+  FrameworkInfo::Capability capability;
+  capability.set_type(FrameworkInfo::Capability::TASK_GONE_STATE);
+
+  FrameworkInfo frameworkInfo = DEFAULT_FRAMEWORK_INFO;
+  frameworkInfo.add_capabilities()->CopyFrom(capability);
+
   MockScheduler sched;
   MesosSchedulerDriver driver(
-      &sched, DEFAULT_FRAMEWORK_INFO, master.get()->pid, DEFAULT_CREDENTIAL);
+      &sched, frameworkInfo, master.get()->pid, DEFAULT_CREDENTIAL);
 
   Future<FrameworkID> frameworkId;
   EXPECT_CALL(sched, registered(&driver, _, _))
