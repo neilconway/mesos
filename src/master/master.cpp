@@ -6608,8 +6608,8 @@ void Master::removeSlave(
     removeOffer(offer, true); // Rescind!
   }
 
-  // Remove inverse offers because sending them for a slave that is
-  // gone doesn't make sense.
+  // Remove inverse offers because sending them for a slave that has
+  // been removed doesn't make sense.
   foreach (InverseOffer* inverseOffer, utils::copy(slave->inverseOffers)) {
     // We don't need to update the allocator because we've already called
     // `RemoveSlave()`.
