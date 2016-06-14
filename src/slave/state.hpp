@@ -34,7 +34,6 @@
 #include <stout/path.hpp>
 #include <stout/protobuf.hpp>
 #include <stout/strings.hpp>
-#include <stout/utils.hpp>
 #include <stout/uuid.hpp>
 
 #include <stout/os/mkdir.hpp>

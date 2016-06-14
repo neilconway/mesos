@@ -37,7 +37,6 @@
 #include <stout/json.hpp>
 #include <stout/os.hpp>
 #include <stout/stopwatch.hpp>
-#include <stout/utils.hpp>
 
 #include "master/constants.hpp"
 #include "master/flags.hpp"

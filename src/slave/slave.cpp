@@ -64,7 +64,6 @@
 #include <stout/strings.hpp>
 #include <stout/try.hpp>
 #include <stout/uuid.hpp>
-#include <stout/utils.hpp>
 
 #ifdef __linux__
 #include "linux/cgroups.hpp"

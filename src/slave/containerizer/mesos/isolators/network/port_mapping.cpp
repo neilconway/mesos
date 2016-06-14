@@ -47,7 +47,6 @@
 #include <stout/result.hpp>
 #include <stout/stringify.hpp>
 #include <stout/strings.hpp>
-#include <stout/utils.hpp>
 
 #include <stout/os/exists.hpp>
 #include <stout/os/realpath.hpp>

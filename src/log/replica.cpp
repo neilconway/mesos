@@ -31,7 +31,6 @@
 #include <stout/nothing.hpp>
 #include <stout/result.hpp>
 #include <stout/try.hpp>
-#include <stout/utils.hpp>
 
 #include "log/leveldb.hpp"
 #include "log/replica.hpp"
