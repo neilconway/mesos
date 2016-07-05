@@ -67,10 +67,7 @@ public:
   explicit UpdateQuota(const mesos::quota::QuotaInfo& quotaInfo);
 
 protected:
-  Try<bool> perform(
-      Registry* registry,
-      hashset<SlaveID>* slaveIDs,
-      bool strict);
+  Try<bool> perform(Registry* registry, bool strict);
 
 private:
   const mesos::quota::QuotaInfo info;
@@ -89,10 +86,7 @@ public:
   explicit RemoveQuota(const std::string& _role);
 
 protected:
-  Try<bool> perform(
-      Registry* registry,
-      hashset<SlaveID>* slaveIDs,
-      bool strict);
+  Try<bool> perform(Registry* registry, bool strict);
 
 private:
   const std::string role;

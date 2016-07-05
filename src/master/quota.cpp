@@ -41,10 +41,7 @@ UpdateQuota::UpdateQuota(const QuotaInfo& quotaInfo)
   : info(quotaInfo) {}
 
 
-Try<bool> UpdateQuota::perform(
-    Registry* registry,
-    hashset<SlaveID>*,
-    bool)
+Try<bool> UpdateQuota::perform(Registry* registry, bool)
 {
   // If there is already quota stored for the role, update the entry.
   foreach (Registry::Quota& quota, *registry->mutable_quotas()) {
@@ -64,10 +61,7 @@ Try<bool> UpdateQuota::perform(
 RemoveQuota::RemoveQuota(const string& _role) : role(_role) {}
 
 
-Try<bool> RemoveQuota::perform(
-    Registry* registry,
-    hashset<SlaveID>*,
-    bool)
+Try<bool> RemoveQuota::perform(Registry* registry, bool)
 {
   // Remove quota for the role if a corresponding entry exists.
   for (int i = 0; i < registry->quotas().size(); ++i) {

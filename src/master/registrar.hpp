@@ -49,8 +49,6 @@ public:
   virtual ~Operation() {}
 
   // Attempts to invoke the operation on the registry object.
-  // Aided by accumulator(s):
-  //   slaveIDs - is the set of registered slaves.
   //
   // NOTE: the "strict" parameter only applies to operations that
   // affect slaves (i.e. registration).  See Flags::registry_strict
@@ -58,12 +56,9 @@ public:
   //
   // Returns whether the operation mutates 'registry', or an error if
   // the operation cannot be applied successfully.
-  Try<bool> operator()(
-      Registry* registry,
-      hashset<SlaveID>* slaveIDs,
-      bool strict)
+  Try<bool> operator()(Registry* registry, bool strict)
   {
-    const Try<bool> result = perform(registry, slaveIDs, strict);
+    const Try<bool> result = perform(registry, strict);
 
     success = !result.isError();
 
@@ -74,10 +69,7 @@ public:
   bool set() { return process::Promise<bool>::set(success); }
 
 protected:
-  virtual Try<bool> perform(
-      Registry* registry,
-      hashset<SlaveID>* slaveIDs,
-      bool strict) = 0;
+  virtual Try<bool> perform(Registry* registry, bool strict) = 0;
 
 private:
   bool success;

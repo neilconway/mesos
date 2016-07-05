@@ -44,7 +44,6 @@ UpdateSchedule::UpdateSchedule(
 
 Try<bool> UpdateSchedule::perform(
     Registry* registry,
-    hashset<SlaveID>* slaveIDs,
     bool strict)
 {
   // Put the machines in the existing schedule into a set.
@@ -121,10 +120,7 @@ StartMaintenance::StartMaintenance(
 }
 
 
-Try<bool> StartMaintenance::perform(
-    Registry* registry,
-    hashset<SlaveID>* slaveIDs,
-    bool strict)
+Try<bool> StartMaintenance::perform(Registry* registry, bool strict)
 {
   // Flip the mode of all targeted machines.
   bool changed = false;
@@ -151,10 +147,7 @@ StopMaintenance::StopMaintenance(
 }
 
 
-Try<bool> StopMaintenance::perform(
-    Registry* registry,
-    hashset<SlaveID>* slaveIDs,
-    bool strict)
+Try<bool> StopMaintenance::perform(Registry* registry, bool strict)
 {
   // Delete the machine info entry of all targeted machines.
   // i.e. Transition them into `UP` mode.
