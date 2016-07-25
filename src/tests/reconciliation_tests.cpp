@@ -227,8 +227,9 @@ TEST_F(ReconciliationTest, TaskStateMatch)
 
 
 // This test verifies that reconciliation of a task that belongs to an
-// unknown slave results in TASK_LOST.
-TEST_F(ReconciliationTest, UnknownSlave)
+// unknown slave results in TASK_LOST if the framework does not have
+// the PARTITION_AWARE capability.
+TEST_F(ReconciliationTest, UnknownSlaveLost)
 {
   Try<Owned<cluster::Master>> master = StartMaster();
   ASSERT_SOME(master);
@@ -261,6 +262,54 @@ TEST_F(ReconciliationTest, UnknownSlave)
   // Framework should receive TASK_LOST because the slave is unknown.
   AWAIT_READY(update);
   EXPECT_EQ(TASK_LOST, update.get().state());
+  EXPECT_EQ(TaskStatus::REASON_RECONCILIATION, update.get().reason());
+
+  driver.stop();
+  driver.join();
+}
+
+
+// This test verifies that reconciliation of a task that belongs to an
+// unknown slave results in TASK_UNKNOWN if the framework has the
+// PARTITION_AWARE capability.
+TEST_F(ReconciliationTest, UnknownSlaveUnknown)
+{
+  Try<Owned<cluster::Master>> master = StartMaster();
+  ASSERT_SOME(master);
+
+  FrameworkInfo frameworkInfo = DEFAULT_FRAMEWORK_INFO;
+  frameworkInfo.add_capabilities()->set_type(
+      FrameworkInfo::Capability::PARTITION_AWARE);
+
+  MockScheduler sched;
+  MesosSchedulerDriver driver(
+    &sched, DEFAULT_FRAMEWORK_INFO, master.get()->pid, DEFAULT_CREDENTIAL);
+
+  Future<FrameworkID> frameworkId;
+  EXPECT_CALL(sched, registered(&driver, _, _))
+    .WillOnce(FutureArg<1>(&frameworkId));
+
+  driver.start();
+
+  // Wait until the framework is registered.
+  AWAIT_READY(frameworkId);
+
+  Future<TaskStatus> update;
+  EXPECT_CALL(sched, statusUpdate(&driver, _))
+    .WillOnce(FutureArg<1>(&update));
+
+  // Create a task status with a random slave id (and task id).
+  TaskStatus status;
+  status.mutable_task_id()->set_value(UUID::random().toString());
+  status.mutable_slave_id()->set_value(UUID::random().toString());
+  status.set_state(TASK_STAGING); // Dummy value.
+
+  driver.reconcileTasks({status});
+
+  // Framework should receive TASK_UNKNOWN because the slave is
+  // unknown and framework has the PARTITION_AWARE capability.
+  AWAIT_READY(update);
+  EXPECT_EQ(TASK_UNKNOWN, update.get().state());
   EXPECT_EQ(TaskStatus::REASON_RECONCILIATION, update.get().reason());
 
   driver.stop();
