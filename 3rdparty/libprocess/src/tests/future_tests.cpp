@@ -187,7 +187,8 @@ TEST(FutureTest, After1)
 
   std::atomic_bool executed(false);
 
-  Future<Nothing> future = Future<Nothing>()
+  Future<Nothing> t = Future<Nothing>();
+  Future<Nothing> future = t
     .after(Hours(42), lambda::bind(&after, &executed, lambda::_1));
 
   LOG(INFO) << "1 Future refcount: " << future.refcount()
