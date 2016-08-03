@@ -103,7 +103,12 @@ public:
 
   /*implicit*/ Future(const Try<T>& t);
 
-  ~Future() { LOG(INFO) << "Calling dtor for future"; }
+  ~Future() {
+    if (data.use_count() > 0) {
+      LOG(INFO) << "Calling dtor for future; data addr = "
+                << data.get() << "; refcount = " << data.use_count();
+    }
+  }
 
   // Futures are assignable (and copyable). This results in the
   // reference to the previous future data being decremented and a
@@ -420,13 +425,6 @@ public:
   // TODO(benh): Add overloads of 'after' that don't require passing
   // in a function that takes the 'const Future<T>&' parameter and use
   // Prefer/LessPrefer to disambiguate.
-
-  size_t refcount() { return data.use_count(); }
-
-private:
-  friend class Promise<T>;
-  friend class WeakFuture<T>;
-
   enum State
   {
     PENDING,
@@ -459,6 +457,13 @@ private:
     std::vector<DiscardedCallback> onDiscardedCallbacks;
     std::vector<AnyCallback> onAnyCallbacks;
   };
+
+  size_t refcount() { return data.use_count(); }
+  Data* dataAddr() { return data.get(); }
+
+private:
+  friend class Promise<T>;
+  friend class WeakFuture<T>;
 
   // Sets the value for this future, unless the future is already set,
   // failed, or discarded, in which case it returns false.

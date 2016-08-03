@@ -190,7 +190,8 @@ TEST(FutureTest, After1)
   Future<Nothing> future = Future<Nothing>()
     .after(Hours(42), lambda::bind(&after, &executed, lambda::_1));
 
-  LOG(INFO) << "1 Future refcount: " << future.refcount();
+  LOG(INFO) << "1 Future refcount: " << future.refcount()
+            << "; data addr = " << future.dataAddr();
 
   // A pending future should stay pending until 'after' is executed.
   EXPECT_TRUE(future.isPending());
@@ -198,13 +199,15 @@ TEST(FutureTest, After1)
   // Only advanced halfway, future should remain pending.
   Clock::advance(Hours(21));
 
-  LOG(INFO) << "2 Future refcount: " << future.refcount();
+  LOG(INFO) << "2 Future refcount: " << future.refcount()
+            << "; data addr = " << future.dataAddr();
   EXPECT_TRUE(future.isPending());
 
   // Even doing a discard on the future should keep it pending.
   future.discard();
 
-  LOG(INFO) << "3 Future refcount: " << future.refcount();
+  LOG(INFO) << "3 Future refcount: " << future.refcount()
+            << "; data addr = " << future.dataAddr();
   EXPECT_TRUE(future.isPending());
 
   // After advancing all the way the future should now fail because
@@ -213,7 +216,8 @@ TEST(FutureTest, After1)
 
   AWAIT_FAILED(future);
 
-  LOG(INFO) << "4 Future refcount: " << future.refcount();
+  LOG(INFO) << "4 Future refcount: " << future.refcount()
+            << "; data addr = " << future.dataAddr();
 
   EXPECT_TRUE(executed.load());
 
