@@ -421,6 +421,8 @@ public:
   // in a function that takes the 'const Future<T>&' parameter and use
   // Prefer/LessPrefer to disambiguate.
 
+  size_t refcount() { return data.use_count(); }
+
 private:
   friend class Promise<T>;
   friend class WeakFuture<T>;

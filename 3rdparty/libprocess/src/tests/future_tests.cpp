@@ -190,6 +190,8 @@ TEST(FutureTest, After1)
   Future<Nothing> future = Future<Nothing>()
     .after(Hours(42), lambda::bind(&after, &executed, lambda::_1));
 
+  LOG(INFO) << "Future refcount: " << future.refcount();
+
   // A pending future should stay pending until 'after' is executed.
   EXPECT_TRUE(future.isPending());
 
