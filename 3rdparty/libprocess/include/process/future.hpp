@@ -103,7 +103,7 @@ public:
 
   /*implicit*/ Future(const Try<T>& t);
 
-  ~Future() = default;
+  ~Future() { LOG(INFO) << "Calling dtor for future"; }
 
   // Futures are assignable (and copyable). This results in the
   // reference to the previous future data being decremented and a
