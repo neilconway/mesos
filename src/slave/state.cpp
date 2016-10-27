@@ -55,6 +55,36 @@ using std::max;
 using std::string;
 
 
+Try<list<SlaveID>> recoverSlaveIDs(const string& rootDir)
+{
+  const string& slavesPath = paths::getSandboxRootDir(rootDir);
+
+  Try<list<string>> slaveDir = os::ls(slavesPath);
+  if (slaveDir.isError()) {
+    return Error(slaveDir.error());
+  }
+
+  list<SlaveID> result;
+
+  foreach (const string& entry, slaveDir.get()) {
+    string path = path::join(slavesPath, entry);
+
+    // Ignore symbolic links (e.g., `latest`), as well as any
+    // non-directory entries.
+    if (os::stat::islink(path) || !os::stat::isdir(path)) {
+      continue;
+    }
+
+    SlaveID slaveId;
+    slaveId.set_value(entry);
+
+    result.push_back(slaveId);
+  }
+
+  return result;
+}
+
+
 Try<State> recover(const string& rootDir, bool strict)
 {
   LOG(INFO) << "Recovering state from '" << rootDir << "'";
@@ -79,6 +109,15 @@ Try<State> recover(const string& rootDir, bool strict)
   state.resources = resources.get();
 
   // If the machine has rebooted, skip recovering slave state.
+  //
+  // We know that any slave IDs associated with previous boot IDs are
+  // no longer running (along with all of their tasks/executors). We
+  // report these "retired" slave IDs to the master during registration.
+  // It would be sufficient to only report the most recent "retired"
+  // slave ID (a new slave ID can only be obtained by registering with
+  // the master, so the master will know that any older slave IDs have
+  // been retired). However, we don't currently attempt to be clever
+  // here and just report all the old slave IDs.
   const string& bootIdPath = paths::getBootIdPath(rootDir);
   if (os::exists(bootIdPath)) {
     Try<string> read = os::read(bootIdPath);
@@ -91,6 +130,18 @@ Try<State> recover(const string& rootDir, bool strict)
 
       if (id.get() != strings::trim(read.get())) {
         LOG(INFO) << "Agent host rebooted";
+
+        Try<list<SlaveID>> slaveIDs = recoverSlaveIDs(rootDir);
+        if (slaveIDs.isError()) {
+          LOG(WARNING) << "Failed to find list of previous agent IDs: "
+                       << slaveIDs.error();
+        } else {
+          LOG(INFO) << "Found " << slaveIDs->size()
+                    << " agent IDs eligible for retirement";
+
+          state.retiredSlaveIDs = slaveIDs.get();
+        }
+
         return state;
       }
     }

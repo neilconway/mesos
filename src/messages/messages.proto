@@ -423,6 +423,22 @@ message RegisterSlaveMessage {
   // checkpointed resources explicitly.
   repeated Resource checkpointed_resources = 3;
 
+  // Slave IDs in this list will never attempt to re-register with the
+  // master. Furthermore, all of the tasks/executors being run by any
+  // of these slave IDs are no longer running.
+  //
+  // The slave learns this information by examining the metadata in
+  // its `work_dir` -- these slave IDs typically correspond to runs of
+  // the slave that were active when the host/OS failed
+  // suddenly. These slave IDs are sent to the master so that anyone
+  // waiting for the slave ID to re-register can make progress (we
+  // know that re-registration will never occur).
+  //
+  // TODO(neilc): Consider also reporting slave IDs that will never
+  // attempt to re-register but which might still have running
+  // tasks/executors.
+  repeated SlaveID retired_slave_ids = 4;
+
   // NOTE: This is a hack for the master to detect the agent's
   // version. If unset the agent is < 0.21.0.
   // TODO(bmahler): Do proper versioning: MESOS-986.

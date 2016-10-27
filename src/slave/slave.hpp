@@ -757,6 +757,10 @@ private:
   // `info.resources()` with checkpointed resources applied.
   Resources totalResources;
 
+  // Slave IDs that are no longer running (e.g., those associated with
+  // previous boot IDs).
+  std::list<SlaveID> retiredSlaveIDs;
+
   Option<process::UPID> master;
 
   hashmap<FrameworkID, Framework*> frameworks;

@@ -21,6 +21,7 @@
 #include <unistd.h>
 #endif // __WINDOWS__
 
+#include <list>
 #include <vector>
 
 #include <mesos/resources.hpp>
@@ -307,6 +308,8 @@ struct State
 
   Option<ResourcesState> resources;
   Option<SlaveState> slave;
+
+  std::list<SlaveID> retiredSlaveIDs;
 
   // TODO(jieyu): Consider using a vector of Option<Error> here so
   // that we can print all the errors. This also applies to all the

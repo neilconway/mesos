@@ -1376,6 +1376,11 @@ void Slave::doReliableRegistration(Duration maxBackoff)
     // Include checkpointed resources.
     message.mutable_checkpointed_resources()->CopyFrom(checkpointedResources);
 
+    // Include retired slave IDs.
+    foreach(const SlaveID& slaveId, retiredSlaveIDs) {
+      message.add_retired_slave_ids()->CopyFrom(slaveId);
+    }
+
     send(master.get(), message);
   } else {
     // Re-registering, so send tasks running.
@@ -5190,6 +5195,14 @@ Future<Nothing> Slave::recover(const Try<state::State>& state)
 
   Option<ResourcesState> resourcesState = state->resources;
   Option<SlaveState> slaveState = state->slave;
+
+  if (!state->retiredSlaveIDs.empty()) {
+    // If we recovered any slave IDs, we expect that recovery of the
+    // slave state did not succeed.
+    CHECK(slaveState.isNone());
+
+    retiredSlaveIDs = state->retiredSlaveIDs;
+  }
 
   // Recover checkpointed resources.
   // NOTE: 'resourcesState' is None if the slave rootDir does not
