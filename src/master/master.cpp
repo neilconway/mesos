@@ -790,6 +790,7 @@ void Master::initialize()
       &Master::registerSlave,
       &RegisterSlaveMessage::slave,
       &RegisterSlaveMessage::checkpointed_resources,
+      &RegisterSlaveMessage::retired_slave_ids,
       &RegisterSlaveMessage::version);
 
   install<ReregisterSlaveMessage>(
@@ -1578,7 +1579,7 @@ Future<Nothing> Master::recover()
 Future<Nothing> Master::_recover(const Registry& registry)
 {
   foreach (const Registry::Slave& slave, registry.slaves().slaves()) {
-    slaves.recovered.insert(slave.info().id());
+    slaves.recovered[slave.info().id()] = slave.info();
   }
 
   foreach (const Registry::UnreachableSlave& unreachable,
@@ -1888,6 +1889,19 @@ Nothing Master::markUnreachableAfterFailover(const SlaveInfo& slave)
     LOG(INFO) << "Canceling transition of agent "
               << slave.id() << " (" << slave.hostname() << ")"
               << " to unreachable because it is re-registering";
+
+    ++metrics->slave_unreachable_canceled;
+    return Nothing();
+  }
+
+  // There should be no slave observer for this slave; however, we
+  // might be concurrently trying to retire this slave ID, so avoid
+  // trying to mark it unreachable twice.
+  if (slaves.markingUnreachable.contains(slave.id())) {
+    LOG(INFO) << "Canceling transition of agent "
+              << slave.id() << " (" << slave.hostname() << ")"
+              << " to unreachable because it is already"
+              << " being marked unreachable";
 
     ++metrics->slave_unreachable_canceled;
     return Nothing();
@@ -5062,6 +5076,7 @@ void Master::registerSlave(
     const UPID& from,
     const SlaveInfo& slaveInfo,
     const vector<Resource>& checkpointedResources,
+    const vector<SlaveID>& retiredSlaveIDs,
     const string& version)
 {
   ++metrics->messages_register_slave;
@@ -5076,6 +5091,7 @@ void Master::registerSlave(
                      from,
                      slaveInfo,
                      checkpointedResources,
+                     retiredSlaveIDs,
                      version));
     return;
   }
@@ -5110,6 +5126,64 @@ void Master::registerSlave(
     return;
   }
 
+  // Retire any slave IDs that the slave has indicated will never
+  // attempt to re-register. Retired slave IDs are marked LOST.
+  foreach (const SlaveID& slaveID, retiredSlaveIDs) {
+    // Any of the following might be true about `slaveID`:
+    //
+    //    (1) Registered, if the host rebooted before the slave
+    //        observer marked it as unreachable. Usually the slave
+    //        will already be disconnected (broken socket).
+    //
+    //    (2) In the `recovered` collection, if the master has failed
+    //        at the same time the slave rebooted.
+    //
+    //    (3) Already marked unreachable, if the slave rebooted after
+    //        being marked unreachable by the master.
+    //
+    // TODO(neilc): Currently, we mark the slave LOST in case (1) but
+    // UNREACHABLE in cases (2) and (3). In all three cases we should
+    // mark the agent GONE once that is implemented.
+    LOG(INFO) << "Retiring agent ID: " << slaveID;
+
+    Slave* slave = slaves.registered.get(slaveID);
+
+    if (slave != nullptr) {
+      // We only retire slave IDs when the slave host reboots, so we
+      // don't expect to see a retirement for a slave ID that is still
+      // connected.
+      if (slave->connected) {
+        LOG(WARNING) << "Cannot retire agent " << slaveID
+                     << " because it is currently connected";
+        continue;
+      }
+
+      removeSlave(slave,
+                  "a new agent indicated this agent is retired",
+                  metrics->slave_removals_reason_registered);
+    } else {
+      // Slave is not currently registered; if it is in the
+      // `recovered` collection, mark it unreachable. We might see the
+      // retirement of the same slave ID many times, so we only
+      // increment metrics and send the `slaveLost` signal if the
+      // agent is still waiting in `recovered`.
+      if (slaves.recovered.contains(slaveID)) {
+        SlaveInfo slaveInfo = slaves.recovered.at(slaveID);
+
+        ++metrics->slave_unreachable_scheduled;
+
+        // TODO(neilc): Log messages and metrics are wrong.
+        markUnreachableAfterFailover(slaveInfo);
+      }
+    }
+  }
+
+  // NOTE: retirement (above) does not happen synchronously. For
+  // example, if we're removing a slave or marking it unreachable
+  // because of retirement, the registry operation to complete that
+  // transition will typically not have completed when the code below
+  // is executed.
+
   // Check if this slave is already registered (because it retries).
   if (slaves.registered.contains(from)) {
     Slave* slave = slaves.registered.get(from);
@@ -5120,6 +5194,11 @@ void Master::registerSlave(
       // to register as a new slave. This could happen if the slave
       // failed recovery and hence registering as a new slave before
       // the master removed the old slave from its map.
+      //
+      // NOTE: This is partially redundant with the `retiredSlaveIDs`
+      // logic above. However, we currently only retire slave IDs when
+      // the host reboots, so checking for a UPID collision is still
+      // useful.
       LOG(INFO) << "Removing old disconnected agent " << *slave
                 << " because a registration attempt occurred";
       removeSlave(slave,

@@ -2432,6 +2432,293 @@ TYPED_TEST(SlaveRecoveryTest, Reboot)
 }
 
 
+// When the slave reboots at the same time there is master failover,
+// we don't need to wait for `agent_reregister_timeout` to expire
+// before we know the old slave ID will never reregister: when the
+// slave registers and obtains a new slave ID, the master should also
+// learn that the old slave ID has been retired.
+TYPED_TEST(SlaveRecoveryTest, MasterFailoverAgentReboot)
+{
+  Try<Owned<cluster::Master>> master = this->StartMaster();
+  ASSERT_SOME(master);
+
+  slave::Flags flags = this->CreateSlaveFlags();
+
+  Fetcher fetcher;
+
+  Try<TypeParam*> _containerizer = TypeParam::create(flags, true, &fetcher);
+  ASSERT_SOME(_containerizer);
+  Owned<slave::Containerizer> containerizer(_containerizer.get());
+
+  Owned<MasterDetector> detector = master.get()->createDetector();
+
+  Future<SlaveRegisteredMessage> slaveRegisteredMessage1 =
+      FUTURE_PROTOBUF(SlaveRegisteredMessage(), _, _);
+
+  Try<Owned<cluster::Slave>> slave =
+    this->StartSlave(detector.get(), containerizer.get(), flags);
+  ASSERT_SOME(slave);
+
+  AWAIT_READY(slaveRegisteredMessage1);
+
+  const SlaveID slaveId1 = slaveRegisteredMessage1.get().slave_id();
+
+  // Stop the master.
+  master->reset();
+
+  // Stop the slave.
+  slave.get()->terminate();
+
+  // Restart the master.
+  master = this->StartMaster();
+  ASSERT_SOME(master);
+
+  // Modify the boot ID to simulate a reboot of the slave's host.
+  ASSERT_SOME(os::write(
+      paths::getBootIdPath(paths::getMetaRootDir(flags.work_dir)),
+      "rebooted! ;)"));
+
+  // Restart the slave (use same flags) with a new containerizer.
+  _containerizer = TypeParam::create(flags, true, &fetcher);
+  ASSERT_SOME(_containerizer);
+  containerizer.reset(_containerizer.get());
+
+  Future<SlaveRegisteredMessage> slaveRegisteredMessage2 =
+      FUTURE_PROTOBUF(SlaveRegisteredMessage(), _, _);
+
+  slave = this->StartSlave(detector.get(), containerizer.get(), flags);
+  ASSERT_SOME(slave);
+
+  AWAIT_READY(slaveRegisteredMessage2);
+
+  const SlaveID slaveId2 = slaveRegisteredMessage2.get().slave_id();
+
+  EXPECT_NE(slaveId1, slaveId2);
+
+  // Connect a scheduler and do explicit reconciliation for a random
+  // task ID on the old slave ID. This should return TASK_LOST because
+  // we know the old slave ID will never re-register; if the master
+  // incorrectly views the old slave ID as still a candidate to
+  // re-register, this would return no results instead.
+  //
+  // TODO(neilc): Update this to use TASK_GONE once it has been
+  // implemented.
+  MockScheduler sched;
+  MesosSchedulerDriver driver(
+      &sched, DEFAULT_FRAMEWORK_INFO, master.get()->pid, DEFAULT_CREDENTIAL);
+
+  Future<Nothing> registered;
+  EXPECT_CALL(sched, registered(&driver, _, _))
+    .WillOnce(FutureSatisfy(&registered));
+
+  // Ignore any resource offers.
+  EXPECT_CALL(sched, resourceOffers(_, _))
+    .WillRepeatedly(Return());
+
+  driver.start();
+
+  AWAIT_READY(registered);
+
+  TaskStatus status;
+  status.mutable_task_id()->set_value(UUID::random().toString());
+  status.mutable_slave_id()->CopyFrom(slaveId1);
+  status.set_state(TASK_STAGING); // Dummy value.
+
+  Future<TaskStatus> reconcileUpdate;
+  EXPECT_CALL(sched, statusUpdate(&driver, _))
+    .WillOnce(FutureArg<1>(&reconcileUpdate));
+
+  driver.reconcileTasks({status});
+
+  AWAIT_READY(reconcileUpdate);
+  EXPECT_EQ(TASK_LOST, reconcileUpdate.get().state());
+  EXPECT_EQ(TaskStatus::REASON_RECONCILIATION, reconcileUpdate.get().reason());
+  EXPECT_TRUE(reconcileUpdate.get().has_unreachable_time());
+
+  JSON::Object stats = Metrics();
+  EXPECT_EQ(0, stats.values["master/tasks_lost"]);
+  EXPECT_EQ(1, stats.values["master/slave_unreachable_scheduled"]);
+  EXPECT_EQ(1, stats.values["master/slave_unreachable_completed"]);
+  EXPECT_EQ(1, stats.values["master/slave_removals"]);
+
+  // TODO(neilc): Fix this when we no longer use
+  // `markUnreachableAfterFailover`.
+  EXPECT_EQ(1, stats.values["master/slave_removals/reason_unhealthy"]);
+  EXPECT_EQ(0, stats.values["master/slave_removals/reason_registered"]);
+
+  driver.stop();
+  driver.join();
+}
+
+
+// This test constructs a scenario in which an agent is being marked
+// unreachable due to the `agent_reregister_timeout`; while that is in
+// progress, another agent on the same host registers and attempts to
+// retire the slave ID we're marking unreachable.
+TYPED_TEST(SlaveRecoveryTest, MasterFailoverAgentRebootTimeoutRace)
+{
+  master::Flags masterFlags = this->CreateMasterFlags();
+  Try<Owned<cluster::Master>> master = this->StartMaster(masterFlags);
+  ASSERT_SOME(master);
+
+  slave::Flags flags = this->CreateSlaveFlags();
+
+  Fetcher fetcher;
+
+  Try<TypeParam*> _containerizer = TypeParam::create(flags, true, &fetcher);
+  ASSERT_SOME(_containerizer);
+  Owned<slave::Containerizer> containerizer(_containerizer.get());
+
+  Owned<MasterDetector> detector = master.get()->createDetector();
+
+  Future<SlaveRegisteredMessage> slaveRegisteredMessage1 =
+      FUTURE_PROTOBUF(SlaveRegisteredMessage(), _, _);
+
+  Try<Owned<cluster::Slave>> slave =
+    this->StartSlave(detector.get(), containerizer.get(), flags);
+  ASSERT_SOME(slave);
+
+  AWAIT_READY(slaveRegisteredMessage1);
+
+  const SlaveID slaveId1 = slaveRegisteredMessage1.get().slave_id();
+
+  // Stop the master.
+  master->reset();
+
+  // Stop the slave.
+  slave.get()->terminate();
+
+  Clock::pause();
+
+  // Restart the master.
+  master = this->StartMaster();
+  ASSERT_SOME(master);
+
+  // Trigger the `agent_reregister_timeout`. This should cause the
+  // master to update the registry to mark the slave unreachable; we
+  // intercept that registry operation.
+  Future<Owned<master::Operation>> markUnreachable;
+  Promise<bool> markUnreachableContinue;
+  EXPECT_CALL(*master.get()->registrar.get(), apply(_))
+    .WillOnce(DoAll(FutureArg<0>(&markUnreachable),
+                    Return(markUnreachableContinue.future())));
+
+  Clock::advance(masterFlags.agent_reregister_timeout);
+
+  AWAIT_READY(markUnreachable);
+  EXPECT_NE(
+      nullptr,
+      dynamic_cast<master::MarkSlaveUnreachable*>(
+          markUnreachable.get().get()));
+
+  // Modify the boot ID to simulate a reboot of the slave's host.
+  ASSERT_SOME(os::write(
+      paths::getBootIdPath(paths::getMetaRootDir(flags.work_dir)),
+      "rebooted! ;)"));
+
+  // Restart the slave (use same flags) with a new containerizer. When
+  // the slave registers, the master would normally attempt to retire
+  // the previous slave ID, but because we're already in the process
+  // of marking that slave ID unreachable, no registry update will be
+  // attempted. Instead we expect the next registry operation to be
+  // the one that admits the new slave ID.
+  _containerizer = TypeParam::create(flags, true, &fetcher);
+  ASSERT_SOME(_containerizer);
+  containerizer.reset(_containerizer.get());
+
+  Future<Owned<master::Operation>> admitSlave;
+  Promise<bool> admitSlaveContinue;
+  EXPECT_CALL(*master.get()->registrar.get(), apply(_))
+    .WillOnce(DoAll(FutureArg<0>(&admitSlave),
+                    Return(admitSlaveContinue.future())));
+
+  slave = this->StartSlave(detector.get(), containerizer.get(), flags);
+  ASSERT_SOME(slave);
+
+  AWAIT_READY(admitSlave);
+  EXPECT_NE(
+      nullptr,
+      dynamic_cast<master::AdmitSlave*>(admitSlave.get().get()));
+
+  // Finish marking the old slave ID as unreachable in the registry.
+  Future<bool> applyUnreachable =
+    master.get()->registrar->unmocked_apply(markUnreachable.get());
+
+  AWAIT_READY(applyUnreachable);
+  markUnreachableContinue.set(applyUnreachable.get());
+
+  Future<SlaveRegisteredMessage> slaveRegisteredMessage2 =
+      FUTURE_PROTOBUF(SlaveRegisteredMessage(), _, _);
+
+  // Finish admitting the new slave.
+  Future<bool> applyAdmit =
+    master.get()->registrar->unmocked_apply(admitSlave.get());
+
+  AWAIT_READY(applyAdmit);
+  admitSlaveContinue.set(applyAdmit.get());
+
+  AWAIT_READY(slaveRegisteredMessage2);
+
+  const SlaveID slaveId2 = slaveRegisteredMessage2.get().slave_id();
+
+  EXPECT_NE(slaveId1, slaveId2);
+
+  Clock::resume();
+
+  // Connect a scheduler and do explicit reconciliation for a random
+  // task ID on the old slave ID. This should return TASK_LOST because
+  // we know the old slave ID will never re-register; if the master
+  // incorrectly views the old slave ID as still a candidate to
+  // re-register, this would return no results instead.
+  //
+  // TODO(neilc): Update this to use TASK_GONE once it has been
+  // implemented.
+  MockScheduler sched;
+  MesosSchedulerDriver driver(
+      &sched, DEFAULT_FRAMEWORK_INFO, master.get()->pid, DEFAULT_CREDENTIAL);
+
+  Future<Nothing> registered;
+  EXPECT_CALL(sched, registered(&driver, _, _))
+    .WillOnce(FutureSatisfy(&registered));
+
+  // Ignore any resource offers.
+  EXPECT_CALL(sched, resourceOffers(_, _))
+    .WillRepeatedly(Return());
+
+  driver.start();
+
+  AWAIT_READY(registered);
+
+  TaskStatus status;
+  status.mutable_task_id()->set_value(UUID::random().toString());
+  status.mutable_slave_id()->CopyFrom(slaveId1);
+  status.set_state(TASK_STAGING); // Dummy value.
+
+  Future<TaskStatus> reconcileUpdate;
+  EXPECT_CALL(sched, statusUpdate(&driver, _))
+    .WillOnce(FutureArg<1>(&reconcileUpdate));
+
+  driver.reconcileTasks({status});
+
+  AWAIT_READY(reconcileUpdate);
+  EXPECT_EQ(TASK_LOST, reconcileUpdate.get().state());
+  EXPECT_EQ(TaskStatus::REASON_RECONCILIATION, reconcileUpdate.get().reason());
+  EXPECT_TRUE(reconcileUpdate.get().has_unreachable_time());
+
+  JSON::Object stats = Metrics();
+  EXPECT_EQ(0, stats.values["master/tasks_lost"]);
+  EXPECT_EQ(2, stats.values["master/slave_unreachable_scheduled"]);
+  EXPECT_EQ(1, stats.values["master/slave_unreachable_canceled"]);
+  EXPECT_EQ(1, stats.values["master/slave_unreachable_completed"]);
+  EXPECT_EQ(1, stats.values["master/slave_removals"]);
+  EXPECT_EQ(1, stats.values["master/slave_removals/reason_unhealthy"]);
+  EXPECT_EQ(0, stats.values["master/slave_removals/reason_registered"]);
+
+  driver.stop();
+  driver.join();
+}
+
+
 // When the slave is down we remove the "latest" symlink in the
 // executor's run directory, to simulate a situation where the
 // recovered slave (--no-strict) cannot recover the executor and
