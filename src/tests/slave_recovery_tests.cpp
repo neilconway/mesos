@@ -2304,15 +2304,15 @@ TYPED_TEST(SlaveRecoveryTest, Reboot)
   TaskInfo task = createTask(offers1.get()[0], "sleep 1000");
 
   // Capture the slave and framework ids.
-  SlaveID slaveId = offers1.get()[0].slave_id();
+  SlaveID slaveId1 = offers1.get()[0].slave_id();
   FrameworkID frameworkId = offers1.get()[0].framework_id();
 
   Future<Message> registerExecutorMessage =
     FUTURE_MESSAGE(Eq(RegisterExecutorMessage().GetTypeName()), _, _);
 
-  Future<Nothing> status;
+  Future<Nothing> runningStatus;
   EXPECT_CALL(sched, statusUpdate(_, _))
-    .WillOnce(FutureSatisfy(&status))
+    .WillOnce(FutureSatisfy(&runningStatus))
     .WillRepeatedly(Return()); // Ignore subsequent updates.
 
   driver.launchTasks(offers1.get()[0].id(), {task});
@@ -2325,7 +2325,7 @@ TYPED_TEST(SlaveRecoveryTest, Reboot)
   UPID executorPid = registerExecutorMessage.get().from;
 
   // Wait for TASK_RUNNING update.
-  AWAIT_READY(status);
+  AWAIT_READY(runningStatus);
 
   // Capture the container ID.
   Future<hashset<ContainerID>> containers = containerizer->containers();
@@ -2341,7 +2341,7 @@ TYPED_TEST(SlaveRecoveryTest, Reboot)
   // reboot.
   string pidPath = paths::getForkedPidPath(
         paths::getMetaRootDir(flags.work_dir),
-        slaveId,
+        slaveId1,
         frameworkId,
         executorId,
         containerId);
@@ -2364,8 +2364,12 @@ TYPED_TEST(SlaveRecoveryTest, Reboot)
       paths::getBootIdPath(paths::getMetaRootDir(flags.work_dir)),
       "rebooted! ;)"));
 
-  Future<RegisterSlaveMessage> registerSlave =
-    FUTURE_PROTOBUF(RegisterSlaveMessage(), _, _);
+  Future<SlaveRegisteredMessage> slaveRegistered =
+    FUTURE_PROTOBUF(SlaveRegisteredMessage(), _, _);
+
+  Future<Nothing> slaveLost;
+  EXPECT_CALL(sched, slaveLost(_, _))
+    .WillOnce(FutureSatisfy(&slaveLost));
 
   // Restart the slave (use same flags) with a new containerizer.
   _containerizer = TypeParam::create(flags, true, &fetcher);
@@ -2380,12 +2384,48 @@ TYPED_TEST(SlaveRecoveryTest, Reboot)
   slave = this->StartSlave(detector.get(), containerizer.get(), flags);
   ASSERT_SOME(slave);
 
-  AWAIT_READY(registerSlave);
+  AWAIT_READY(slaveRegistered);
+  AWAIT_READY(slaveLost);
+
+  SlaveID slaveId2 = slaveRegistered.get().slave_id();
+
+  EXPECT_NE(slaveId1, slaveId2);
 
   // Make sure all slave resources are reoffered.
   AWAIT_READY(offers2);
   EXPECT_EQ(Resources(offers1.get()[0].resources()),
             Resources(offers2.get()[0].resources()));
+
+  // Do explicit reconciliation for a random task ID on the old slave
+  // ID. This should return TASK_LOST because we know the old slave ID
+  // will never re-register; if the master incorrectly views the old
+  // slave ID as still a candidate to re-register, this would return
+  // no results instead.
+  //
+  // TODO(neilc): Update this to use TASK_GONE once it has been
+  // implemented.
+  TaskStatus status;
+  status.mutable_task_id()->set_value(UUID::random().toString());
+  status.mutable_slave_id()->CopyFrom(slaveId1);
+  status.set_state(TASK_STAGING); // Dummy value.
+
+  Future<TaskStatus> reconcileUpdate;
+  EXPECT_CALL(sched, statusUpdate(&driver, _))
+    .WillOnce(FutureArg<1>(&reconcileUpdate));
+
+  driver.reconcileTasks({status});
+
+  AWAIT_READY(reconcileUpdate);
+  EXPECT_EQ(TASK_LOST, reconcileUpdate.get().state());
+  EXPECT_EQ(TaskStatus::REASON_RECONCILIATION, reconcileUpdate.get().reason());
+  EXPECT_FALSE(reconcileUpdate.get().has_unreachable_time());
+
+  JSON::Object stats = Metrics();
+  EXPECT_EQ(1, stats.values["master/tasks_lost"]);
+  EXPECT_EQ(0, stats.values["master/slave_unreachable_scheduled"]);
+  EXPECT_EQ(0, stats.values["master/slave_unreachable_completed"]);
+  EXPECT_EQ(1, stats.values["master/slave_removals"]);
+  EXPECT_EQ(1, stats.values["master/slave_removals/reason_registered"]);
 
   driver.stop();
   driver.join();
@@ -2848,6 +2888,17 @@ TYPED_TEST(SlaveRecoveryTest, RegisterDisconnectedSlave)
   EXPECT_EQ(TASK_LOST, status2.get().state());
   EXPECT_EQ(TaskStatus::SOURCE_MASTER, status2.get().source());
   EXPECT_EQ(TaskStatus::REASON_SLAVE_REMOVED, status2.get().reason());
+
+  // Need to ensure the `Slave` is destroyed before querying metrics.
+  slave->reset();
+
+  JSON::Object stats = Metrics();
+  EXPECT_EQ(1, stats.values["master/tasks_lost"]);
+  EXPECT_EQ(0, stats.values["master/tasks_unreachable"]);
+  EXPECT_EQ(0, stats.values["master/slave_unreachable_scheduled"]);
+  EXPECT_EQ(0, stats.values["master/slave_unreachable_completed"]);
+  EXPECT_EQ(1, stats.values["master/slave_removals"]);
+  EXPECT_EQ(1, stats.values["master/slave_removals/reason_registered"]);
 
   driver.stop();
   driver.join();
