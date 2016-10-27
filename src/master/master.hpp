@@ -709,7 +709,7 @@ protected:
 
   // Mark a slave as unreachable in the registry. Called when the slave
   // does not re-register in time after a master failover.
-  Nothing markUnreachableAfterFailover(const Registry::Slave& slave);
+  Nothing markUnreachableAfterFailover(const SlaveInfo& slave);
 
   void _markUnreachableAfterFailover(
       const SlaveInfo& slaveInfo,
