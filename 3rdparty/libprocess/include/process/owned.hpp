@@ -15,6 +15,7 @@
 
 #include <atomic>
 #include <memory>
+#include <type_traits>
 
 #include <glog/logging.h>
 
@@ -38,6 +39,11 @@ public:
   Owned();
   explicit Owned(T* t);
 
+  template <typename T2,
+            typename = typename std::enable_if<
+              std::is_convertible<T2*, T*>::value>::type>
+  Owned(const Owned<T2>& that) : data(that.data) {}
+
   bool operator==(const Owned<T>& that) const;
   bool operator<(const Owned<T>& that) const;
 
@@ -57,7 +63,6 @@ public:
   // pointer will be reset after this function is invoked.
   T* release();
 
-private:
   struct Data
   {
     explicit Data(T* t);

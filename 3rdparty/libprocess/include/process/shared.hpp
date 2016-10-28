@@ -15,6 +15,7 @@
 
 #include <atomic>
 #include <memory>
+#include <type_traits>
 
 #include <glog/logging.h>
 
@@ -34,6 +35,13 @@ class Shared
 public:
   Shared();
   explicit Shared(T* t);
+
+  template <typename T2,
+            typename = typename std::enable_if<
+              std::is_convertible<T2*, T*>::value>::type>
+  Shared(const Shared<T2>& that) : data(nullptr)
+  {
+  }
 
   bool operator==(const Shared<T>& that) const;
   bool operator<(const Shared<T>& that) const;

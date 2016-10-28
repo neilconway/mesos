@@ -111,3 +111,38 @@ TEST(OwnedTest, Release)
   delete raw;
   EXPECT_EQ(nullptr, owned.get());
 }
+
+
+class Base
+{
+public:
+  virtual ~Base() {}
+
+  virtual int foo() { return 17; }
+};
+
+
+class Derived : public Base
+{
+public:
+  int foo() override { return 42; }
+};
+
+
+int functionOnBase(Owned<Base> base)
+{
+  return base->foo();
+}
+
+
+TEST(OwnedTest, DerivedUpcast)
+{
+  Owned<Base> base = Owned<Base>(new Base());
+  Owned<Derived> derived = Owned<Derived>(new Derived());
+
+  int result1 = functionOnBase(base);
+  EXPECT_EQ(17, result1);
+
+  int result2 = functionOnBase(derived);
+  EXPECT_EQ(42, result2);
+}
