@@ -628,6 +628,9 @@ Future<Response> Master::Http::api(
 
     case mesos::master::Call::REMOVE_QUOTA:
       return quotaHandler.remove(call, principal);
+
+    case mesos::master::Call::MARK_AGENT_GONE:
+      return agentGone(call, principal);
   }
 
   UNREACHABLE();
@@ -4502,6 +4505,25 @@ Future<Response> Master::Http::getMaintenanceStatus(
 
       return OK(serialize(contentType, evolve(response)),
                 stringify(contentType));
+    });
+}
+
+
+Future<Response> Master::Http::agentGone(
+    const mesos::master::Call& call,
+    const Option<string>& principal) const
+{
+  // TODO(neilc): Authorize operation.
+
+  const SlaveID& slaveId = call.mark_agent_gone().slave_id();
+
+  return master->markAgentGoneByOperator(slaveId)
+    .then([](Try<Nothing> result) -> Response {
+      if (result.isError()) {
+        return Conflict(result.error());
+      }
+
+      return OK();
     });
 }
 

@@ -614,6 +614,12 @@ protected:
 
   void sendSlaveLost(const SlaveInfo& slaveInfo);
 
+  process::Future<Try<Nothing>> markAgentGoneByOperator(const SlaveID& slaveId);
+
+  Try<Nothing> _markAgentGoneByOperator(
+      const SlaveID& slaveId,
+      bool registrarResult);
+
   // Remove the slave from the registrar and from the master's state.
   //
   // TODO(bmahler): 'reason' is optional until MESOS-2317 is resolved.
@@ -1479,6 +1485,13 @@ private:
         const Option<std::string>& principal,
         ContentType contentType) const;
 
+    process::Future<process::http::Response> agentGone(
+        const mesos::master::Call& call,
+        const Option<std::string>& principal) const;
+
+    process::Future<process::http::Response> _agentGone(
+        process::Future<bool>& registrarResult) const;
+
     Master* master;
 
     // NOTE: The quota specific pieces of the Operator API are factored
@@ -1651,13 +1664,20 @@ private:
 
     // Slaves that have been marked unreachable. We recover this from
     // the registry, so it includes slaves marked as unreachable by
-    // other instances of the master. Note that we use a LinkedHashMap
-    // to ensure the order of elements here matches the order in the
-    // registry's unreachable list, which matches the order in which
-    // agents are marked unreachable. This list is garbage collected;
-    // GC behavior is governed by the `registry_gc_interval`,
+    // other instances of the master. We use a LinkedHashMap so that
+    // the order of elements here matches the order of the registry's
+    // unreachable list, which matches the order in which agents are
+    // marked unreachable. This list is garbage collected; GC behavior
+    // is governed by the `registry_gc_interval`,
     // `registry_max_agent_age`, and `registry_max_agent_count` flags.
     LinkedHashMap<SlaveID, TimeInfo> unreachable;
+
+    // Slaves that have been marked gone-by-operator. We recover this
+    // from the registry. We use a LinkedHashMap so that the order of
+    // elements here matches the order of the registry's
+    // gone-by-operator list, which makes the order in which agents
+    // are marked gone-by-operator.
+    LinkedHashMap<SlaveID, Nothing> goneByOperator;
 
     // This rate limiter is used to limit the removal of slaves failing
     // health checks.
@@ -2032,6 +2052,81 @@ protected:
 
 private:
   const hashset<SlaveID> toRemove;
+};
+
+
+// Adds a slave ID to the list of "gone-by-operator" slaves in the
+// registry. The slave may currently be in the list of unreachable
+// slaves, in which case it is removed; if the slave appears in the
+// list of admitted slaves, this operation fails.
+class MarkSlaveGoneByOperator : public Operation
+{
+public:
+  explicit MarkSlaveGoneByOperator(const SlaveID& _slaveId)
+    : slaveId(_slaveId) {}
+
+  virtual Try<bool> perform(Registry* registry, hashset<SlaveID>* slaveIDs)
+  {
+    bool mutate = false;
+
+    // Remove the agent ID from the list of admitted agents, if needed.
+    if (slaveIDs->contains(slaveId)) {
+      for (int i = 0; i < registry->slaves().slaves().size(); i++) {
+        const Registry::Slave& slave = registry->slaves().slaves(i);
+
+        if (slave.info().id() == slaveId) {
+          registry->mutable_slaves()->mutable_slaves()->DeleteSubrange(i, 1);
+          slaveIDs->erase(slaveId);
+          mutate = true;
+          break;
+        }
+      }
+
+      CHECK(mutate);
+    }
+
+    // Remove the agent ID from the list of unreachable agents, if needed.
+    for (int i = 0; i < registry->unreachable().slaves().size(); i++) {
+      const Registry::UnreachableSlave& slave =
+        registry->unreachable().slaves(i);
+
+      if (slave.id() == slaveId) {
+        Registry::UnreachableSlaves* unreachable =
+          registry->mutable_unreachable();
+
+        unreachable->mutable_slaves()->DeleteSubrange(i, 1);
+        mutate = true;
+        break;
+      }
+    }
+
+    // Add the agent ID to the gone-by-operator list, unless it
+    // already appears in that list.
+    bool alreadyGone = false;
+
+    for (int i = 0; i < registry->gone_by_operator().slaves().size(); i++) {
+      const Registry::GoneByOperatorSlave& slave =
+        registry->gone_by_operator().slaves(i);
+
+      if (slave.id() == slaveId) {
+        alreadyGone = true;
+        break;
+      }
+    }
+
+    if (!alreadyGone) {
+      Registry::GoneByOperatorSlave* slave =
+        registry->mutable_gone_by_operator()->add_slaves();
+
+      slave->mutable_id()->CopyFrom(slaveId);
+      mutate = true;
+    }
+
+    return mutate;
+  }
+
+private:
+  const SlaveID slaveId;
 };
 
 

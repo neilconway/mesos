@@ -1656,9 +1656,14 @@ Future<Nothing> Master::_recover(const Registry& registry)
     slaves.recovered.put(slave.info().id(), slave.info());
   }
 
-  foreach (const Registry::UnreachableSlave& unreachable,
+  foreach (const Registry::UnreachableSlave& slave,
            registry.unreachable().slaves()) {
-    slaves.unreachable[unreachable.id()] = unreachable.timestamp();
+    slaves.unreachable[slave.id()] = slave.timestamp();
+  }
+
+  foreach (const Registry::GoneByOperatorSlave& slave,
+           registry.gone_by_operator().slaves()) {
+    slaves.goneByOperator[slave.id()] = Nothing();
   }
 
   // Set up a timer for age-based registry GC.
@@ -1773,6 +1778,7 @@ void Master::scheduleRegistryGc()
 }
 
 
+// TODO(neilc): Update to GC the gone-by-operator list.
 void Master::doRegistryGc()
 {
   // Schedule next periodic GC.
@@ -2046,6 +2052,40 @@ void Master::sendSlaveLost(const SlaveInfo& slaveInfo)
   if (HookManager::hooksAvailable()) {
     HookManager::masterSlaveLostHook(slaveInfo);
   }
+}
+
+
+Future<Try<Nothing>> Master::markAgentGoneByOperator(const SlaveID& slaveId)
+{
+  return registrar->apply(Owned<Operation>(
+          new MarkSlaveGoneByOperator(slaveId)))
+    .then(defer(self(),
+                &Self::_markAgentGoneByOperator,
+                slaveId,
+                lambda::_1));
+}
+
+
+Try<Nothing> Master::_markAgentGoneByOperator(
+    const SlaveID& slaveId,
+    bool registrarResult)
+{
+  // The registry operation never returns an error.
+  CHECK(registrarResult);
+
+  // The registry has been updated to add the agent to the
+  // gone-by-operator list. Now update master state accordingly.
+  slaves.goneByOperator[slaveId] = Nothing();
+  slaves.recovered.erase(slaveId);
+  slaves.unreachable.erase(slaveId);
+
+  // TODO(neilc): Should we erase the agent from the `removed`
+  // collection?
+
+  // TODO(neilc): Should we update the state of any tasks running on
+  // the agent?
+
+  return Nothing();
 }
 
 
@@ -5384,6 +5424,24 @@ void Master::reregisterSlave(
     return;
   }
 
+  // If the slave has been marked GONE_BY_OPERATOR, a re-registration
+  // attempt means the slave was marked GONE_BY_OPERATOR incorrectly.
+  // The best we can do now is try to shutdown the slave and log a
+  // warning message.
+  //
+  // TODO(neilc): Should we increment a metric here?
+  if (slaves.goneByOperator.contains(slaveInfo.id())) {
+    LOG(WARNING) << "Refusing re-registration of agent "
+                 << slaveInfo.id() << " at " << from
+                 << " because that agent ID has been marked "
+                 << "GONE_BY_OPERATOR";
+
+    ShutdownMessage message;
+    message.set_message("Agent is `GONE_BY_OPERATOR`");
+    send(from, message);
+    return;
+  }
+
   Slave* slave = slaves.registered.get(slaveInfo.id());
 
   if (slave != nullptr) {
@@ -6486,10 +6544,11 @@ void Master::_reconcileTasks(
   //   (3) Task is unknown, slave is registered: TASK_UNKNOWN.
   //   (4) Task is unknown, slave is transitioning: no-op.
   //   (5) Task is unknown, slave is unreachable: TASK_UNREACHABLE.
-  //   (6) Task is unknown, slave is unknown: TASK_UNKNOWN.
+  //   (5) Task is unknown, slave is gone-by-operator: TASK_GONE_BY_OPERATOR.
+  //   (7) Task is unknown, slave is unknown: TASK_UNKNOWN.
   //
-  // For cases (3), (5), and (6), TASK_LOST is sent instead if the
-  // framework has not opted-in to the PARTITION_AWARE capability.
+  // For cases (3), (5), (6), and (7), TASK_LOST is sent instead if
+  // the framework has not opted-in to the PARTITION_AWARE capability.
   foreach (const TaskStatus& status, statuses) {
     Option<SlaveID> slaveId = None();
     if (status.has_slave_id()) {
@@ -6585,8 +6644,28 @@ void Master::_reconcileTasks(
           None(),
           None(),
           unreachableTime);
+    } else if (slaveId.isSome() &&
+               slaves.goneByOperator.contains(slaveId.get())) {
+      // (6) Slave has been marked gone-by-operator. If the framework
+      // does not have the PARTITION_AWARE capability, send TASK_LOST
+      // for backward compatibility.
+      TaskState taskState = TASK_GONE_BY_OPERATOR;
+      if (!protobuf::frameworkHasCapability(
+              framework->info, FrameworkInfo::Capability::PARTITION_AWARE)) {
+        taskState = TASK_LOST;
+      }
+
+      update = protobuf::createStatusUpdate(
+          framework->id(),
+          slaveId.get(),
+          status.task_id(),
+          taskState,
+          TaskStatus::SOURCE_MASTER,
+          None(),
+          "Reconciliation: Agent has been marked gone-by-operator",
+          TaskStatus::REASON_RECONCILIATION);
     } else {
-      // (6) Task is unknown, slave is unknown: TASK_UNKNOWN. If the
+      // (7) Task is unknown, slave is unknown: TASK_UNKNOWN. If the
       // framework does not have the PARTITION_AWARE capability, send
       // TASK_LOST for backward compatibility.
       TaskState taskState = TASK_UNKNOWN;

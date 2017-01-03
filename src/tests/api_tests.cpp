@@ -83,6 +83,7 @@ using mesos::internal::protobuf::maintenance::createWindow;
 using process::Clock;
 using process::Failure;
 using process::Future;
+using process::Message;
 using process::Owned;
 using process::Promise;
 
@@ -2295,6 +2296,721 @@ TEST_P(MasterAPITest, ReadFileInvalidPath)
 
   AWAIT_EXPECT_RESPONSE_STATUS_EQ(http::NotFound().status, response);
 }
+
+
+// This test checks that an unreachable agent can be marked
+// GONE_BY_OPERATOR.
+TEST_P(MasterAPITest, UnreachableMarkGone)
+{
+  master::Flags masterFlags = CreateMasterFlags();
+  Try<Owned<cluster::Master>> master = StartMaster(masterFlags);
+  ASSERT_SOME(master);
+
+  Future<Message> ping = FUTURE_MESSAGE(
+      Eq(PingSlaveMessage().GetTypeName()), _, _);
+
+  DROP_PROTOBUFS(PongSlaveMessage(), _, _);
+
+  StandaloneMasterDetector detector(master.get()->pid);
+  Try<Owned<cluster::Slave>> slave = StartSlave(&detector);
+  ASSERT_SOME(slave);
+
+  // Start a partition-aware scheduler.
+  FrameworkInfo frameworkInfo = DEFAULT_FRAMEWORK_INFO;
+  frameworkInfo.add_capabilities()->set_type(
+      FrameworkInfo::Capability::PARTITION_AWARE);
+
+  MockScheduler sched;
+  MesosSchedulerDriver driver(
+      &sched, frameworkInfo, master.get()->pid, DEFAULT_CREDENTIAL);
+
+  EXPECT_CALL(sched, registered(&driver, _, _));
+
+  Future<vector<Offer>> offers;
+  EXPECT_CALL(sched, resourceOffers(&driver, _))
+    .WillOnce(FutureArg<1>(&offers));
+
+  driver.start();
+
+  AWAIT_READY(offers);
+  ASSERT_FALSE(offers->empty());
+
+  Offer offer = offers.get()[0];
+
+  TaskInfo task = createTask(offer, "sleep 60");
+
+  Future<TaskStatus> runningStatus;
+  EXPECT_CALL(sched, statusUpdate(&driver, _))
+    .WillOnce(FutureArg<1>(&runningStatus));
+
+  Future<Nothing> statusUpdateAck = FUTURE_DISPATCH(
+      slave.get()->pid, &Slave::_statusUpdateAcknowledgement);
+
+  driver.launchTasks(offer.id(), {task});
+  AWAIT_READY(runningStatus);
+  EXPECT_EQ(TASK_RUNNING, runningStatus->state());
+  EXPECT_EQ(task.task_id(), runningStatus->task_id());
+
+  const SlaveID slaveId = runningStatus->slave_id();
+
+  AWAIT_READY(statusUpdateAck);
+
+  Clock::pause();
+
+  // Now, induce a partition of the slave by having the master
+  // timeout the slave.
+  Future<TaskStatus> unreachableStatus;
+  EXPECT_CALL(sched, statusUpdate(&driver, _))
+    .WillOnce(FutureArg<1>(&unreachableStatus));
+
+  Future<Nothing> slaveLost;
+  EXPECT_CALL(sched, slaveLost(&driver, _))
+    .WillOnce(FutureSatisfy(&slaveLost));
+
+  size_t pings = 0;
+  while (true) {
+    AWAIT_READY(ping);
+    pings++;
+    if (pings == masterFlags.max_agent_ping_timeouts) {
+      break;
+    }
+    ping = FUTURE_MESSAGE(Eq(PingSlaveMessage().GetTypeName()), _, _);
+    Clock::advance(masterFlags.agent_ping_timeout);
+  }
+
+  Clock::advance(masterFlags.agent_ping_timeout);
+  Clock::resume();
+
+  AWAIT_READY(unreachableStatus);
+  EXPECT_EQ(TASK_UNREACHABLE, unreachableStatus->state());
+  EXPECT_EQ(TaskStatus::REASON_SLAVE_REMOVED, unreachableStatus->reason());
+  EXPECT_EQ(task.task_id(), unreachableStatus->task_id());
+  EXPECT_EQ(slaveId, unreachableStatus->slave_id());
+  EXPECT_TRUE(unreachableStatus->has_unreachable_time());
+
+  AWAIT_READY(slaveLost);
+
+  // Shutdown the slave and destroy all of its containers. This isn't
+  // strictly necessary but it makes the test more realistic (the
+  // slave is not running when we mark it "gone-by-operator" below).
+  slave->reset();
+
+  // Do explicit reconciliation for the task on the partitioned slave,
+  // to confirm that the master still thinks the task is unreachable.
+  {
+    TaskStatus status;
+    status.mutable_task_id()->CopyFrom(task.task_id());
+    status.mutable_slave_id()->CopyFrom(slaveId);
+    status.set_state(TASK_STAGING); // Dummy value.
+
+    Future<TaskStatus> reconcileUpdate;
+    EXPECT_CALL(sched, statusUpdate(&driver, _))
+      .WillOnce(FutureArg<1>(&reconcileUpdate));
+
+    driver.reconcileTasks({status});
+
+    AWAIT_READY(reconcileUpdate);
+    EXPECT_EQ(TASK_UNREACHABLE, reconcileUpdate->state());
+    EXPECT_EQ(TaskStatus::REASON_RECONCILIATION, reconcileUpdate->reason());
+    EXPECT_TRUE(reconcileUpdate->has_unreachable_time());
+  }
+
+  // Mark the partitioned agent GONE_BY_OPERATOR.
+  v1::master::Call v1Call;
+  v1Call.set_type(v1::master::Call::MARK_AGENT_GONE);
+
+  v1::master::Call::MarkAgentGone* agentGone = v1Call.mutable_mark_agent_gone();
+  agentGone->mutable_agent_id()->CopyFrom(evolve(slaveId));
+
+  ContentType contentType = GetParam();
+
+  Future<http::Response> response = http::post(
+      master.get()->pid,
+      "api/v1",
+      createBasicAuthHeaders(DEFAULT_CREDENTIAL),
+      serialize(contentType, v1Call),
+      stringify(contentType));
+
+  AWAIT_EXPECT_RESPONSE_STATUS_EQ(http::OK().status, response);
+
+  // Do explicit reconciliation, to confirm that all tasks on the
+  // agent have been marked TASK_GONE_BY_OPERATOR.
+  {
+    TaskStatus status;
+    status.mutable_task_id()->CopyFrom(task.task_id());
+    status.mutable_slave_id()->CopyFrom(slaveId);
+    status.set_state(TASK_STAGING); // Dummy value.
+
+    Future<TaskStatus> reconcileUpdate;
+    EXPECT_CALL(sched, statusUpdate(&driver, _))
+      .WillOnce(FutureArg<1>(&reconcileUpdate));
+
+    driver.reconcileTasks({status});
+
+    AWAIT_READY(reconcileUpdate);
+    EXPECT_EQ(TASK_GONE_BY_OPERATOR, reconcileUpdate->state());
+    EXPECT_EQ(TaskStatus::REASON_RECONCILIATION, reconcileUpdate->reason());
+    EXPECT_FALSE(reconcileUpdate->has_unreachable_time());
+  }
+
+  driver.stop();
+  driver.join();
+}
+
+
+// This test checks that an unknown agent can be marked
+// GONE_BY_OPERATOR.
+TEST_P(MasterAPITest, UnknownMarkGone)
+{
+  Try<Owned<cluster::Master>> master = StartMaster();
+  ASSERT_SOME(master);
+
+  // Choose a random agent ID and mark it GONE_BY_OPERATOR.
+  const string agentId = UUID::random().toString();
+
+  v1::master::Call v1Call;
+  v1Call.set_type(v1::master::Call::MARK_AGENT_GONE);
+
+  v1::master::Call::MarkAgentGone* agentGone = v1Call.mutable_mark_agent_gone();
+  agentGone->mutable_agent_id()->set_value(agentId);
+
+  ContentType contentType = GetParam();
+
+  Future<http::Response> response = http::post(
+      master.get()->pid,
+      "api/v1",
+      createBasicAuthHeaders(DEFAULT_CREDENTIAL),
+      serialize(contentType, v1Call),
+      stringify(contentType));
+
+  AWAIT_EXPECT_RESPONSE_STATUS_EQ(http::OK().status, response);
+
+  // Start a partition-aware scheduler.
+  FrameworkInfo frameworkInfo = DEFAULT_FRAMEWORK_INFO;
+  frameworkInfo.add_capabilities()->set_type(
+      FrameworkInfo::Capability::PARTITION_AWARE);
+
+  MockScheduler sched;
+  MesosSchedulerDriver driver(
+      &sched, frameworkInfo, master.get()->pid, DEFAULT_CREDENTIAL);
+
+  Future<Nothing> registered;
+  EXPECT_CALL(sched, registered(&driver, _, _))
+    .WillOnce(FutureSatisfy(&registered));
+
+  driver.start();
+
+  AWAIT_READY(registered);
+
+  // Do explicit reconciliation for a random task ID on the agent ID
+  // chosen earlier.
+  {
+    const string taskId = UUID::random().toString();
+
+    TaskStatus status;
+    status.mutable_task_id()->set_value(taskId);
+    status.mutable_slave_id()->set_value(agentId);
+    status.set_state(TASK_STAGING); // Dummy value.
+
+    Future<TaskStatus> reconcileUpdate;
+    EXPECT_CALL(sched, statusUpdate(&driver, _))
+      .WillOnce(FutureArg<1>(&reconcileUpdate));
+
+    driver.reconcileTasks({status});
+
+    AWAIT_READY(reconcileUpdate);
+    EXPECT_EQ(TASK_GONE_BY_OPERATOR, reconcileUpdate->state());
+    EXPECT_EQ(TaskStatus::REASON_RECONCILIATION, reconcileUpdate->reason());
+    EXPECT_FALSE(reconcileUpdate->has_unreachable_time());
+  }
+
+  driver.stop();
+  driver.join();
+}
+
+
+// This test checks that when an unknown agent is marked
+// GONE_BY_OPERATOR, reconciliation by a non-partition-aware framework
+// returns TASK_LOST for backward compatibility.
+TEST_P(MasterAPITest, UnknownMarkGoneNonPartitionAware)
+{
+  Try<Owned<cluster::Master>> master = StartMaster();
+  ASSERT_SOME(master);
+
+  // Choose a random agent ID and mark it GONE_BY_OPERATOR.
+  const string agentId = UUID::random().toString();
+
+  v1::master::Call v1Call;
+  v1Call.set_type(v1::master::Call::MARK_AGENT_GONE);
+
+  v1::master::Call::MarkAgentGone* agentGone = v1Call.mutable_mark_agent_gone();
+  agentGone->mutable_agent_id()->set_value(agentId);
+
+  ContentType contentType = GetParam();
+
+  Future<http::Response> response = http::post(
+      master.get()->pid,
+      "api/v1",
+      createBasicAuthHeaders(DEFAULT_CREDENTIAL),
+      serialize(contentType, v1Call),
+      stringify(contentType));
+
+    AWAIT_EXPECT_RESPONSE_STATUS_EQ(http::OK().status, response);
+
+  // Start a non-partition-aware scheduler.
+  MockScheduler sched;
+  MesosSchedulerDriver driver(
+      &sched, DEFAULT_FRAMEWORK_INFO, master.get()->pid, DEFAULT_CREDENTIAL);
+
+  Future<Nothing> registered;
+  EXPECT_CALL(sched, registered(&driver, _, _))
+    .WillOnce(FutureSatisfy(&registered));
+
+  driver.start();
+
+  AWAIT_READY(registered);
+
+  // Do explicit reconciliation for a random task ID on the agent ID
+  // chosen earlier.
+  {
+    const string taskId = UUID::random().toString();
+
+    TaskStatus status;
+    status.mutable_task_id()->set_value(taskId);
+    status.mutable_slave_id()->set_value(agentId);
+    status.set_state(TASK_STAGING); // Dummy value.
+
+    Future<TaskStatus> reconcileUpdate;
+    EXPECT_CALL(sched, statusUpdate(&driver, _))
+      .WillOnce(FutureArg<1>(&reconcileUpdate));
+
+    driver.reconcileTasks({status});
+
+    AWAIT_READY(reconcileUpdate);
+    EXPECT_EQ(TASK_LOST, reconcileUpdate->state());
+    EXPECT_EQ(TaskStatus::REASON_RECONCILIATION, reconcileUpdate->reason());
+    EXPECT_FALSE(reconcileUpdate->has_unreachable_time());
+  }
+
+  driver.stop();
+  driver.join();
+}
+
+
+// This test checks that an unknown agent can be marked
+// GONE_BY_OPERATOR multiple times; this should be equivalent to
+// marking the agent GONE_BY_OPERATOR once.
+TEST_P(MasterAPITest, UnknownMarkGoneTwice)
+{
+  Try<Owned<cluster::Master>> master = StartMaster();
+  ASSERT_SOME(master);
+
+  // Choose a random agent ID and mark it GONE_BY_OPERATOR.
+  const string agentId = UUID::random().toString();
+
+  v1::master::Call v1Call;
+  v1Call.set_type(v1::master::Call::MARK_AGENT_GONE);
+
+  v1::master::Call::MarkAgentGone* agentGone = v1Call.mutable_mark_agent_gone();
+  agentGone->mutable_agent_id()->set_value(agentId);
+
+  ContentType contentType = GetParam();
+
+  // Mark the agent GONE_BY_OPERATOR.
+  {
+    Future<http::Response> response = http::post(
+        master.get()->pid,
+        "api/v1",
+        createBasicAuthHeaders(DEFAULT_CREDENTIAL),
+        serialize(contentType, v1Call),
+        stringify(contentType));
+
+    AWAIT_EXPECT_RESPONSE_STATUS_EQ(http::OK().status, response);
+  }
+
+  // Mark the agent GONE_BY_OPERATOR a second time.
+  {
+    Future<http::Response> response = http::post(
+        master.get()->pid,
+        "api/v1",
+        createBasicAuthHeaders(DEFAULT_CREDENTIAL),
+        serialize(contentType, v1Call),
+        stringify(contentType));
+
+    AWAIT_EXPECT_RESPONSE_STATUS_EQ(http::OK().status, response);
+  }
+
+  // Start a partition-aware scheduler.
+  FrameworkInfo frameworkInfo = DEFAULT_FRAMEWORK_INFO;
+  frameworkInfo.add_capabilities()->set_type(
+      FrameworkInfo::Capability::PARTITION_AWARE);
+
+  MockScheduler sched;
+  MesosSchedulerDriver driver(
+      &sched, frameworkInfo, master.get()->pid, DEFAULT_CREDENTIAL);
+
+  Future<Nothing> registered;
+  EXPECT_CALL(sched, registered(&driver, _, _))
+    .WillOnce(FutureSatisfy(&registered));
+
+  driver.start();
+
+  AWAIT_READY(registered);
+
+  // Do explicit reconciliation for a random task ID on the agent ID
+  // chosen earlier.
+  {
+    const string taskId = UUID::random().toString();
+
+    TaskStatus status;
+    status.mutable_task_id()->set_value(taskId);
+    status.mutable_slave_id()->set_value(agentId);
+    status.set_state(TASK_STAGING); // Dummy value.
+
+    Future<TaskStatus> reconcileUpdate;
+    EXPECT_CALL(sched, statusUpdate(&driver, _))
+      .WillOnce(FutureArg<1>(&reconcileUpdate));
+
+    driver.reconcileTasks({status});
+
+    AWAIT_READY(reconcileUpdate);
+    EXPECT_EQ(TASK_GONE_BY_OPERATOR, reconcileUpdate->state());
+    EXPECT_EQ(TaskStatus::REASON_RECONCILIATION, reconcileUpdate->reason());
+    EXPECT_FALSE(reconcileUpdate->has_unreachable_time());
+  }
+
+  driver.stop();
+  driver.join();
+}
+
+
+// This test checks that a recovered agent can be marked
+// GONE_BY_OPERATOR. The framework should receive a `slaveLost`
+// callback in this scenario.
+TEST_P(MasterAPITest, RecoveredMarkGone)
+{
+  master::Flags masterFlags = CreateMasterFlags();
+  Try<Owned<cluster::Master>> master = StartMaster(masterFlags);
+  ASSERT_SOME(master);
+
+  StandaloneMasterDetector detector(master.get()->pid);
+  Try<Owned<cluster::Slave>> slave = StartSlave(&detector);
+  ASSERT_SOME(slave);
+
+  // Start a partition-aware scheduler.
+  FrameworkInfo frameworkInfo = DEFAULT_FRAMEWORK_INFO;
+  frameworkInfo.add_capabilities()->set_type(
+      FrameworkInfo::Capability::PARTITION_AWARE);
+
+  MockScheduler sched;
+  TestingMesosSchedulerDriver driver(&sched, &detector, frameworkInfo);
+
+  EXPECT_CALL(sched, registered(&driver, _, _));
+
+  Future<vector<Offer>> offers;
+  EXPECT_CALL(sched, resourceOffers(&driver, _))
+    .WillOnce(FutureArg<1>(&offers));
+
+  driver.start();
+
+  AWAIT_READY(offers);
+  ASSERT_FALSE(offers->empty());
+
+  Offer offer = offers.get()[0];
+
+  TaskInfo task = createTask(offer, "sleep 60");
+
+  Future<TaskStatus> runningStatus;
+  EXPECT_CALL(sched, statusUpdate(&driver, _))
+    .WillOnce(FutureArg<1>(&runningStatus));
+
+  Future<Nothing> statusUpdateAck = FUTURE_DISPATCH(
+      slave.get()->pid, &Slave::_statusUpdateAcknowledgement);
+
+  driver.launchTasks(offer.id(), {task});
+  AWAIT_READY(runningStatus);
+  EXPECT_EQ(TASK_RUNNING, runningStatus->state());
+  EXPECT_EQ(task.task_id(), runningStatus->task_id());
+
+  const SlaveID slaveId = runningStatus->slave_id();
+
+  AWAIT_READY(statusUpdateAck);
+
+  // Stop the master.
+  master->reset();
+
+  // While the master is down, stop the slave.
+  slave->reset();
+
+  // Restart the master.
+  master = StartMaster(masterFlags);
+  ASSERT_SOME(master);
+
+  // Mark the agent GONE_BY_OPERATOR.
+  v1::master::Call v1Call;
+  v1Call.set_type(v1::master::Call::MARK_AGENT_GONE);
+
+  v1::master::Call::MarkAgentGone* agentGone = v1Call.mutable_mark_agent_gone();
+  agentGone->mutable_agent_id()->CopyFrom(evolve(slaveId));
+
+  ContentType contentType = GetParam();
+
+  Future<http::Response> response = http::post(
+      master.get()->pid,
+      "api/v1",
+      createBasicAuthHeaders(DEFAULT_CREDENTIAL),
+      serialize(contentType, v1Call),
+      stringify(contentType));
+
+  AWAIT_EXPECT_RESPONSE_STATUS_EQ(http::OK().status, response);
+
+  // Do explicit reconciliation, to confirm that all tasks on the
+  // agent have been marked TASK_GONE_BY_OPERATOR.
+  {
+    TaskStatus status;
+    status.mutable_task_id()->CopyFrom(task.task_id());
+    status.mutable_slave_id()->CopyFrom(slaveId);
+    status.set_state(TASK_STAGING); // Dummy value.
+
+    Future<TaskStatus> reconcileUpdate;
+    EXPECT_CALL(sched, statusUpdate(&driver, _))
+      .WillOnce(FutureArg<1>(&reconcileUpdate));
+
+    driver.reconcileTasks({status});
+
+    AWAIT_READY(reconcileUpdate);
+    EXPECT_EQ(TASK_GONE_BY_OPERATOR, reconcileUpdate->state());
+    EXPECT_EQ(TaskStatus::REASON_RECONCILIATION, reconcileUpdate->reason());
+    EXPECT_FALSE(reconcileUpdate->has_unreachable_time());
+  }
+
+  driver.stop();
+  driver.join();
+}
+
+
+// This test checks that a registered agent can be marked
+// GONE_BY_OPERATOR. This should result in the master disconnecting
+// and unregistering the agent.
+TEST_P(MasterAPITest, RegisteredMarkGone)
+{
+}
+
+
+// This test checks that if the master fails over after marking an
+// agent GONE_BY_OPERATOR, that information is recovered from the
+// registry.
+TEST_P(MasterAPITest, MarkGoneThenFailover)
+{
+  master::Flags masterFlags = CreateMasterFlags();
+  masterFlags.registry = "replicated_log";
+
+  Try<Owned<cluster::Master>> master = StartMaster(masterFlags);
+  ASSERT_SOME(master);
+
+  // Choose a random agent ID and mark it GONE_BY_OPERATOR.
+  const string agentId = UUID::random().toString();
+
+  v1::master::Call v1Call;
+  v1Call.set_type(v1::master::Call::MARK_AGENT_GONE);
+
+  v1::master::Call::MarkAgentGone* agentGone = v1Call.mutable_mark_agent_gone();
+  agentGone->mutable_agent_id()->set_value(agentId);
+
+  ContentType contentType = GetParam();
+
+  Future<http::Response> response = http::post(
+      master.get()->pid,
+      "api/v1",
+      createBasicAuthHeaders(DEFAULT_CREDENTIAL),
+      serialize(contentType, v1Call),
+      stringify(contentType));
+
+  AWAIT_EXPECT_RESPONSE_STATUS_EQ(http::OK().status, response);
+
+  // Restart the master to simulate master failover.
+  master->reset();
+  master = StartMaster(masterFlags);
+  ASSERT_SOME(master);
+
+  // Start a partition-aware scheduler.
+  FrameworkInfo frameworkInfo = DEFAULT_FRAMEWORK_INFO;
+  frameworkInfo.add_capabilities()->set_type(
+      FrameworkInfo::Capability::PARTITION_AWARE);
+
+  MockScheduler sched;
+  MesosSchedulerDriver driver(
+      &sched, frameworkInfo, master.get()->pid, DEFAULT_CREDENTIAL);
+
+  Future<Nothing> registered;
+  EXPECT_CALL(sched, registered(&driver, _, _))
+    .WillOnce(FutureSatisfy(&registered));
+
+  driver.start();
+
+  AWAIT_READY(registered);
+
+  // Do explicit reconciliation for a random task ID on the agent ID
+  // chosen earlier.
+  {
+    const string taskId = UUID::random().toString();
+
+    TaskStatus status;
+    status.mutable_task_id()->set_value(taskId);
+    status.mutable_slave_id()->set_value(agentId);
+    status.set_state(TASK_STAGING); // Dummy value.
+
+    Future<TaskStatus> reconcileUpdate;
+    EXPECT_CALL(sched, statusUpdate(&driver, _))
+      .WillOnce(FutureArg<1>(&reconcileUpdate));
+
+    driver.reconcileTasks({status});
+
+    AWAIT_READY(reconcileUpdate);
+    EXPECT_EQ(TASK_GONE_BY_OPERATOR, reconcileUpdate->state());
+    EXPECT_EQ(TaskStatus::REASON_RECONCILIATION, reconcileUpdate->reason());
+    EXPECT_FALSE(reconcileUpdate->has_unreachable_time());
+  }
+
+  driver.stop();
+  driver.join();
+}
+
+
+// This test checks that if an agent is marked GONE_BY_OPERATOR but
+// then attempts to re-register with the master, the master will ask
+// the agent to shutdown.
+TEST_P(MasterAPITest, MarkGoneThenAgentReregister)
+{
+  master::Flags masterFlags = CreateMasterFlags();
+  Try<Owned<cluster::Master>> master = StartMaster(masterFlags);
+  ASSERT_SOME(master);
+
+  Future<Message> ping = FUTURE_MESSAGE(
+      Eq(PingSlaveMessage().GetTypeName()), _, _);
+
+  DROP_PROTOBUFS(PongSlaveMessage(), _, _);
+
+  StandaloneMasterDetector detector(master.get()->pid);
+  slave::Flags agentFlags = CreateSlaveFlags();
+  Try<Owned<cluster::Slave>> slave = StartSlave(&detector, agentFlags);
+  ASSERT_SOME(slave);
+
+  // Start a partition-aware scheduler.
+  FrameworkInfo frameworkInfo = DEFAULT_FRAMEWORK_INFO;
+  frameworkInfo.add_capabilities()->set_type(
+      FrameworkInfo::Capability::PARTITION_AWARE);
+
+  MockScheduler sched;
+  MesosSchedulerDriver driver(
+      &sched, frameworkInfo, master.get()->pid, DEFAULT_CREDENTIAL);
+
+  EXPECT_CALL(sched, registered(&driver, _, _));
+
+  Future<vector<Offer>> offers;
+  EXPECT_CALL(sched, resourceOffers(&driver, _))
+    .WillOnce(FutureArg<1>(&offers));
+
+  driver.start();
+
+  AWAIT_READY(offers);
+  ASSERT_FALSE(offers->empty());
+
+  Offer offer = offers.get()[0];
+
+  TaskInfo task = createTask(offer, "sleep 60");
+
+  Future<TaskStatus> runningStatus;
+  EXPECT_CALL(sched, statusUpdate(&driver, _))
+    .WillOnce(FutureArg<1>(&runningStatus));
+
+  Future<Nothing> statusUpdateAck = FUTURE_DISPATCH(
+      slave.get()->pid, &Slave::_statusUpdateAcknowledgement);
+
+  driver.launchTasks(offer.id(), {task});
+  AWAIT_READY(runningStatus);
+  EXPECT_EQ(TASK_RUNNING, runningStatus->state());
+  EXPECT_EQ(task.task_id(), runningStatus->task_id());
+
+  const SlaveID slaveId = runningStatus->slave_id();
+
+  AWAIT_READY(statusUpdateAck);
+
+  Clock::pause();
+
+  // Now, induce a partition of the slave by having the master
+  // timeout the slave.
+  Future<TaskStatus> unreachableStatus;
+  EXPECT_CALL(sched, statusUpdate(&driver, _))
+    .WillOnce(FutureArg<1>(&unreachableStatus));
+
+  Future<Nothing> slaveLost;
+  EXPECT_CALL(sched, slaveLost(&driver, _))
+    .WillOnce(FutureSatisfy(&slaveLost));
+
+  size_t pings = 0;
+  while (true) {
+    AWAIT_READY(ping);
+    pings++;
+    if (pings == masterFlags.max_agent_ping_timeouts) {
+      break;
+    }
+    ping = FUTURE_MESSAGE(Eq(PingSlaveMessage().GetTypeName()), _, _);
+    Clock::advance(masterFlags.agent_ping_timeout);
+  }
+
+  Clock::advance(masterFlags.agent_ping_timeout);
+  Clock::resume();
+
+  AWAIT_READY(unreachableStatus);
+  EXPECT_EQ(TASK_UNREACHABLE, unreachableStatus->state());
+  EXPECT_EQ(TaskStatus::REASON_SLAVE_REMOVED, unreachableStatus->reason());
+  EXPECT_EQ(task.task_id(), unreachableStatus->task_id());
+  EXPECT_EQ(slaveId, unreachableStatus->slave_id());
+  EXPECT_TRUE(unreachableStatus->has_unreachable_time());
+
+  AWAIT_READY(slaveLost);
+
+  // Mark the partitioned agent GONE_BY_OPERATOR. Note that the agent
+  // hasn't actually been terminated, so marking it GONE_BY_OPERATOR
+  // implies user error.
+  v1::master::Call v1Call;
+  v1Call.set_type(v1::master::Call::MARK_AGENT_GONE);
+
+  v1::master::Call::MarkAgentGone* agentGone = v1Call.mutable_mark_agent_gone();
+  agentGone->mutable_agent_id()->CopyFrom(evolve(slaveId));
+
+  ContentType contentType = GetParam();
+
+  Future<http::Response> response = http::post(
+      master.get()->pid,
+      "api/v1",
+      createBasicAuthHeaders(DEFAULT_CREDENTIAL),
+      serialize(contentType, v1Call),
+      stringify(contentType));
+
+  AWAIT_EXPECT_RESPONSE_STATUS_EQ(http::OK().status, response);
+
+  // Trigger the agent to attempt to re-register with the
+  // master. Because the agent has been marked GONE_BY_OPERATOR, the
+  // master should attempt to shutdown the agent.
+  Future<ShutdownMessage> shutdownSlave = FUTURE_PROTOBUF(
+      ShutdownMessage(), master.get()->pid, slave.get()->pid);
+
+  detector.appoint(master.get()->pid);
+
+  Clock::advance(agentFlags.registration_backoff_factor);
+  AWAIT_READY(shutdownSlave);
+
+  driver.stop();
+  driver.join();
+}
+
+// TODO(neilc):
+//  * tests for GC behavior
+//  * tests for race conditions with other registry operations
+//  * tests for streaming API?
+//  * tests for framework unreachable tasks on the gone agent?
 
 
 class AgentAPITest

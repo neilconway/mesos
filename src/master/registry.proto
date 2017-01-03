@@ -52,6 +52,14 @@ message Registry {
     repeated UnreachableSlave slaves = 1;
   }
 
+  message GoneByOperatorSlave {
+    required SlaveID id = 1;
+  }
+
+  message GoneByOperatorSlaves {
+    repeated GoneByOperatorSlave slaves = 1;
+  }
+
   message Machine {
     required MachineInfo info = 1;
   }
@@ -83,6 +91,10 @@ message Registry {
   // size of this list is limited by the `registry_max_agent_age` and
   // `registry_max_agent_count` flags.
   optional UnreachableSlaves unreachable = 7;
+
+  // Slaves that the operator has indicated will never attempt to
+  // re-register with the master.
+  optional GoneByOperatorSlaves gone_by_operator = 8;
 
   // Holds a list of machines and some status information about each.
   // See comments in `MachineInfo` for more information.

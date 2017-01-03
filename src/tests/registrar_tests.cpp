@@ -229,6 +229,9 @@ TEST_F(RegistrarTest, Recover)
       registrar.apply(Owned<Operation>(new MarkSlaveReachable(slave))));
   AWAIT_EXPECT_FAILED(
       registrar.apply(Owned<Operation>(new RemoveSlave(slave))));
+  AWAIT_EXPECT_FAILED(
+      registrar.apply(
+          Owned<Operation>(new MarkSlaveGoneByOperator(slave.id()))));
 
   Future<Registry> registry = registrar.recover(master);
 
@@ -428,6 +431,83 @@ TEST_F(RegistrarTest, Remove)
   AWAIT_TRUE(registrar.apply(Owned<Operation>(new RemoveSlave(info3))));
 
   AWAIT_FALSE(registrar.apply(Owned<Operation>(new RemoveSlave(info3))));
+}
+
+
+TEST_F(RegistrarTest, MarkSlaveGoneByOperator)
+{
+  {
+    Registrar registrar(flags, state);
+    AWAIT_READY(registrar.recover(master));
+
+    // Admit three slaves.
+    SlaveID id1;
+    id1.set_value("1");
+
+    SlaveInfo info1;
+    info1.set_hostname("localhost");
+    info1.mutable_id()->CopyFrom(id1);
+
+    SlaveID id2;
+    id2.set_value("2");
+
+    SlaveInfo info2;
+    info2.set_hostname("localhost");
+    info2.mutable_id()->CopyFrom(id2);
+
+    SlaveID id3;
+    id3.set_value("3");
+
+    SlaveInfo info3;
+    info3.set_hostname("localhost");
+    info3.mutable_id()->CopyFrom(id3);
+
+    AWAIT_TRUE(registrar.apply(Owned<Operation>(new AdmitSlave(info1))));
+    AWAIT_TRUE(registrar.apply(Owned<Operation>(new AdmitSlave(info2))));
+    AWAIT_TRUE(registrar.apply(Owned<Operation>(new AdmitSlave(info3))));
+
+    // Mark the first slave unreachable, then gone-by-operator.
+    AWAIT_TRUE(
+        registrar.apply(
+            Owned<Operation>(
+                new MarkSlaveUnreachable(info1, protobuf::getCurrentTime()))));
+
+    AWAIT_TRUE(
+        registrar.apply(
+            Owned<Operation>(new MarkSlaveGoneByOperator(info1.id()))));
+
+    // Repeated gone-by-operator operations should succeed but have no
+    // effect.
+    AWAIT_TRUE(
+        registrar.apply(
+            Owned<Operation>(new MarkSlaveGoneByOperator(info1.id()))));
+
+    // Mark the second slave gone-by-operator while it is still
+    // admitted. This should result in removing the agent from the list
+    // of admitted agents.
+    AWAIT_TRUE(
+        registrar.apply(
+            Owned<Operation>(new MarkSlaveGoneByOperator(info2.id()))));
+
+    // Mark an unknown agent gone-by-operator; this should succeed.
+    SlaveID id4;
+    id4.set_value("4");
+
+    AWAIT_TRUE(
+        registrar.apply(
+            Owned<Operation>(new MarkSlaveGoneByOperator(id4))));
+  }
+
+  // Check the resulting state of the registry.
+  {
+    Registrar registrar(flags, state);
+    Future<Registry> registry = registrar.recover(master);
+    AWAIT_READY(registry);
+
+    EXPECT_EQ(1, registry->slaves().slaves().size());
+    EXPECT_EQ(0, registry->unreachable().slaves().size());
+    EXPECT_EQ(3, registry->gone_by_operator().slaves().size());
+  }
 }
 
 

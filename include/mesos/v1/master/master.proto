@@ -85,6 +85,8 @@ message Call {
     GET_QUOTA = 28;
     SET_QUOTA = 29;          // See 'SetQuota' below.
     REMOVE_QUOTA = 30;       // See 'RemoveQuota' below.
+
+    MARK_AGENT_GONE = 31;    // See 'MarkAgentGone' below.
   }
 
   // Provides a snapshot of the current metrics tracked by the master.
@@ -186,6 +188,13 @@ message Call {
     required string role = 1;
   }
 
+  // Informs the master that the agent with the specified agent ID is
+  // no longer running. This implies that all tasks/executors that
+  // were running on that agent are no longer running.
+  message MarkAgentGone {
+    required AgentID agent_id = 1;
+  }
+
   optional Type type = 1;
 
   optional GetMetrics get_metrics = 2;
@@ -202,6 +211,7 @@ message Call {
   optional StopMaintenance stop_maintenance  = 13;
   optional SetQuota set_quota = 14;
   optional RemoveQuota remove_quota = 15;
+  optional MarkAgentGone mark_agent_gone = 16;
 }
 
 
