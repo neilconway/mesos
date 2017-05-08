@@ -23,6 +23,9 @@
 
 // TODO(zhitao): Change the string-valued macros to use integers
 // after a deprecation cycle started with 1.1.
+//
+// TODO(neilc): Expose the prerelease label (e.g., "-dev"), if
+// appropriate.
 #define MESOS_MAJOR_VERSION "@MESOS_MAJOR_VERSION@"
 #define MESOS_MAJOR_VERSION_NUM @MESOS_MAJOR_VERSION@
 
