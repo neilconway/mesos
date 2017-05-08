@@ -140,6 +140,28 @@ This guide describes the process of doing an official release of Mesos.
    **NOTE:** This might actually demand code updates if any omissions were
    identified.
 
+10. If this is a regular release, create a release branch for the
+    release series:
+
+        $ git checkout -b X.Y.x
+
+11. If this is a regular release, the version of the code on the master
+    branch uses the `-dev` prerelease label (e.g., `X.Y.Z-dev`). In the
+    *release* branch, remove the `-dev` prerelease label.
+
+     * In `configure.ac`, change `AC_INIT([mesos], [X.Y.Z])`.
+     * In `CMakeLists.txt`: `set(MESOS_MAJOR_VERSION X)`, `set(MESOS_MINOR_VERSION Y)`, `set(MESOS_PATCH_VERSION Z)`, `set(MESOS_PRERELEASE_LABEL "")`.
+
+    Then commit and push your changes.
+
+12. If this is a regular release, update the version number in the
+    master branch to be the development version of the *next* minor
+    release.
+
+     * In `configure.ac`, change `AC_INIT([mesos], [X.Y.Z-dev])`.
+     * In `CMakeLists.txt`: `set(MESOS_MAJOR_VERSION X)`, `set(MESOS_MINOR_VERSION Y)`, `set(MESOS_PATCH_VERSION Z)`, `set(MESOS_PRERELEASE_LABEL "-dev")`.
+
+    Then commit and push your changes.
 
 ## Tagging the Release Candidate
 
@@ -173,16 +195,6 @@ This guide describes the process of doing an official release of Mesos.
    (space-separated) that default OSX uses. You may need to modify your local
    copy of `tag.sh` for it to complete successfully.
 
-5. If this is a regular release, create a new release branch (<major>.<minor>.x)
-   from this tag.
-
-        $ git checkout -b X.Y.x
-
-   Now, update master branch to the *next*  minor version in `configure.ac`:
-   change `AC_INIT([mesos], [X.Y.Z]))`, as well as in `CMakeLists.txt`:
-   change `set(MESOS_MAJOR_VERSION X)`, `set(MESOS_MINOR_VERSION Y)`,
-   `set(MESOS_PATCH_VERSION Z)` and then commit.
-
 
 ## Voting the Release Candidate
 
@@ -213,8 +225,9 @@ This guide describes the process of doing an official release of Mesos.
    fixed JIRAs.
 
 3. Once all patches are committed to master, cherry-pick them on to the
-   corresponding release branch. This is the same process used for patch
-   releases (e.g., 1.0.2) as well.
+   corresponding release branch. Be sure to include the commit(s) that
+   update the `CHANGELOG` for the version being released. This is the
+   same process used for patch releases (e.g., 1.0.2) as well.
 
         $ git checkout X.Y.x
         $ git cherry-pick abcdefgh...
@@ -239,7 +252,9 @@ This guide describes the process of doing an official release of Mesos.
    and non-binding voters.
 
 4. Update the version in `configure.ac` and `CMakeLists.txt` in the **release**
-   branch to the **next** patch version.
+   branch to the **next** patch version with a `-dev` prerelease label. For example,
+   if version `1.2.3` has just been released, update the version in the `1.2.x`
+   release branch to `1.2.4-dev`.
 
 
 ## Updating the Website

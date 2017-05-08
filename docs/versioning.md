@@ -56,7 +56,7 @@ Note that this means users should be able to upgrade (as long as they are not de
 
 The deprecation period for any given feature will be **6 months**. Having a set period allows Mesos developers to not indefinitely accrue technical debt and allows users time to plan for upgrades.
 
-The detailed information about upgrading to a particular Mesos version would be posted [here](upgrades.md).
+Detailed information about upgrading to a particular Mesos version can be found [here](upgrades.md).
 
 
 ## API versioning
@@ -105,9 +105,9 @@ The following are considered backwards incompatible changes for Scheduler API:
 
 ### Release branches
 
-For regular releases, the work is done on the master branch. There are no feature branches but there will be release branches.
+For regular releases, the work is done on the master branch. There are no feature branches but there will be release branches. The master branch will always have a version number with a `-dev` prerelease label (e.g., 1.2.0-dev, 1.3.0-dev).
 
-When it is time to cut a minor release, a new branch (e.g., 1.2.x) is created off the master branch. We chose 'x' instead of patch release number to disambiguate branch names from tag names. Then the first RC (-rc1) is tagged on the release branch. Subsequent RCs, in case the previous RCs fail testing, should be tagged on the release branch.
+When it is time to cut a minor release, a new branch (e.g., 1.2.x) is created off the master branch. We chose 'x' instead of patch release number to disambiguate branch names from tag names. Then the first RC (-rc1) is tagged on the release branch. Subsequent RCs, in case the previous RCs fail testing, should be tagged on the release branch. After the release branch is created, the `-dev` prerelease label is removed from the version number. Note that the version number does not include the release candidate label.
 
 Patch releases are also based off the release branches. Typically the fix for an issue that is affecting supported releases lands on the master branch and is then backported to the release branch(es). In rare cases, the fix might directly go into a release branch without landing on master (e.g.,  fix / issue is not applicable to master).
 
