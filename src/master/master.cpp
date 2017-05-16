@@ -6067,6 +6067,10 @@ void Master::__reregisterSlave(
     if (partitionAwareFrameworks.contains(frameworkId)) {
       recoveredTasks.push_back(task);
 
+      // If the master knows about the task's framework, remove the
+      // task from the per-framework cache of unreachable tasks. The
+      // master might not know about the framework if the master has
+      // failed over and the framework has not re-registered.
       Framework* framework = getFramework(frameworkId);
       if (framework != nullptr) {
         framework->unreachableTasks.erase(task.task_id());

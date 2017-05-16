@@ -2379,6 +2379,120 @@ TEST_F(PartitionTest, PartitionAwareTaskCompletedOnPartitionedAgent)
 }
 
 
+// This test checks that an agent running a partition-aware task is
+// able to re-register successfully when (a) the master failed over
+// while the agent was partitioned, and (b) the framework has not
+// re-registered yet (so it will be "recovered" when the agent
+// re-registers).
+TEST_F(PartitionTest, PartitionedTaskRecoveredFramework)
+{
+  master::Flags masterFlags = CreateMasterFlags();
+  Try<Owned<cluster::Master>> master = StartMaster(masterFlags);
+  ASSERT_SOME(master);
+
+  StandaloneMasterDetector detector(master.get()->pid);
+  Try<Owned<cluster::Slave>> slave = StartSlave(&detector);
+  ASSERT_SOME(slave);
+
+  FrameworkInfo frameworkInfo = DEFAULT_FRAMEWORK_INFO;
+  frameworkInfo.set_failover_timeout(Weeks(2).secs());
+  frameworkInfo.add_capabilities()->set_type(
+      FrameworkInfo::Capability::PARTITION_AWARE);
+
+  MockScheduler sched;
+  MesosSchedulerDriver driver(
+      &sched, frameworkInfo, master.get()->pid, DEFAULT_CREDENTIAL);
+
+  Future<FrameworkID> frameworkId;
+  EXPECT_CALL(sched, registered(&driver, _, _))
+    .WillOnce(FutureArg<1>(&frameworkId));
+
+  Future<vector<Offer>> offers;
+  EXPECT_CALL(sched, resourceOffers(&driver, _))
+    .WillOnce(FutureArg<1>(&offers));
+
+  driver.start();
+
+  AWAIT_READY(frameworkId);
+  AWAIT_READY(offers);
+
+  ASSERT_FALSE(offers->empty());
+  Offer offer = offers.get()[0];
+
+  // Launch `task` using `sched`.
+  TaskInfo task = createTask(offer, "sleep 60");
+
+  Future<TaskStatus> runningStatus;
+  EXPECT_CALL(sched, statusUpdate(&driver, _))
+    .WillOnce(FutureArg<1>(&runningStatus));
+
+  Future<Nothing> statusUpdateAck = FUTURE_DISPATCH(
+      slave.get()->pid, &Slave::_statusUpdateAcknowledgement);
+
+  driver.launchTasks(offer.id(), {task});
+
+  AWAIT_READY(runningStatus);
+  EXPECT_EQ(TASK_RUNNING, runningStatus->state());
+  EXPECT_EQ(task.task_id(), runningStatus->task_id());
+
+  AWAIT_READY(statusUpdateAck);
+
+  // Shutdown the master.
+  master->reset();
+  detector.appoint(None());
+
+  // Stop the framework while the master is down.
+  driver.stop();
+  driver.join();
+
+  // Restart the master.
+  master = StartMaster(masterFlags);
+  ASSERT_SOME(master);
+
+  // Wait for the agent to re-register.
+  Future<SlaveReregisteredMessage> slaveReregistered = FUTURE_PROTOBUF(
+      SlaveReregisteredMessage(), master.get()->pid, slave.get()->pid);
+
+  detector.appoint(master.get()->pid);
+
+  AWAIT_READY(slaveReregistered);
+
+  // Query the master's "/state" endpoint. We expect to see a single
+  // recovered framework.
+  {
+    Future<Response> response = process::http::get(
+        master.get()->pid,
+        "state",
+        None(),
+        createBasicAuthHeaders(DEFAULT_CREDENTIAL));
+
+    AWAIT_EXPECT_RESPONSE_STATUS_EQ(OK().status, response);
+    AWAIT_EXPECT_RESPONSE_HEADER_EQ(APPLICATION_JSON, "Content-Type", response);
+
+    Try<JSON::Object> parse = JSON::parse<JSON::Object>(response->body);
+    ASSERT_SOME(parse);
+
+    JSON::Array frameworks = parse->values["frameworks"].as<JSON::Array>();
+
+    ASSERT_EQ(1u, frameworks.values.size());
+
+    JSON::Object framework = frameworks.values.front().as<JSON::Object>();
+
+    EXPECT_FALSE(framework.values["active"].as<JSON::Boolean>().value);
+    EXPECT_FALSE(framework.values["connected"].as<JSON::Boolean>().value);
+    EXPECT_TRUE(framework.values["recovered"].as<JSON::Boolean>().value);
+
+    EXPECT_TRUE(
+        framework.values["completed_tasks"].as<JSON::Array>().values.empty());
+    EXPECT_TRUE(
+        framework.values["unreachable_tasks"].as<JSON::Array>().values.empty());
+    EXPECT_EQ(
+        1,
+        framework.values["tasks"].as<JSON::Array>().values.size());
+  }
+}
+
+
 // This test checks that the master correctly garbage collects
 // information about unreachable agents from the registry using the
 // count-based GC criterion.
