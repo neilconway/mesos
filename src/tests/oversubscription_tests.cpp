@@ -468,38 +468,44 @@ TEST_F(OversubscriptionTest, RescindRevocableOfferWithIncreasedRevocable)
     .Times(2)
     .WillRepeatedly(InvokeWithoutArgs(&estimations, &Queue<Resources>::get));
 
+  Future<SlaveRegisteredMessage> slaveRegisteredMessage =
+    FUTURE_PROTOBUF(SlaveRegisteredMessage(), _, _);
+
   slave::Flags agentFlags = CreateSlaveFlags();
-
   Owned<MasterDetector> detector = master.get()->createDetector();
-
   Try<Owned<cluster::Slave>> slave =
     StartSlave(detector.get(), &resourceEstimator, agentFlags);
   ASSERT_SOME(slave);
 
+  Clock::advance(agentFlags.registration_backoff_factor);
+  AWAIT_READY(slaveRegisteredMessage);
+
   // Start the framework which desires revocable resources.
-  FrameworkInfo framework = DEFAULT_FRAMEWORK_INFO;
-  framework.add_capabilities()->set_type(
+  FrameworkInfo frameworkInfo = DEFAULT_FRAMEWORK_INFO;
+  frameworkInfo.add_capabilities()->set_type(
       FrameworkInfo::Capability::REVOCABLE_RESOURCES);
 
   MockScheduler sched;
   MesosSchedulerDriver driver(
-      &sched, framework, master.get()->pid, DEFAULT_CREDENTIAL);
+      &sched, frameworkInfo, master.get()->pid, DEFAULT_CREDENTIAL);
 
   EXPECT_CALL(sched, registered(&driver, _, _));
 
-  Queue<Offer> offers;
+  Future<vector<Offer>> offers1;
   EXPECT_CALL(sched, resourceOffers(&driver, _))
-    .WillRepeatedly(EnqueueOffers(&offers));
+    .WillOnce(FutureArg<1>(&offers1));
 
   driver.start();
 
   // Initially the framework will get all regular resources.
-  Clock::advance(agentFlags.registration_backoff_factor);
-  Clock::advance(masterFlags.allocation_interval);
-  Clock::settle();
+  AWAIT_READY(offers1);
+  ASSERT_FALSE(offers1->empty());
 
-  EXPECT_EQ(1u, offers.size());
-  EXPECT_TRUE(Resources(offers.get()->resources()).revocable().empty());
+  EXPECT_TRUE(Resources(offers1->front().resources()).revocable().empty());
+
+  Queue<Offer> offers;
+  EXPECT_CALL(sched, resourceOffers(&driver, _))
+    .WillRepeatedly(EnqueueOffers(&offers));
 
   // Inject an estimation of oversubscribable resources.
   Resources resources1 = createRevocableResources("cpus", "1");
@@ -511,7 +517,7 @@ TEST_F(OversubscriptionTest, RescindRevocableOfferWithIncreasedRevocable)
   EXPECT_EQ(1u, offers.size());
   Future<Offer> offer = offers.get();
   AWAIT_READY(offer);
-  EXPECT_EQ(allocatedResources(resources1, framework.role()),
+  EXPECT_EQ(allocatedResources(resources1, frameworkInfo.role()),
             Resources(offer->resources()));
 
   Future<OfferID> offerId;
@@ -549,7 +555,7 @@ TEST_F(OversubscriptionTest, RescindRevocableOfferWithIncreasedRevocable)
   }
 
   // The offered resources should match the resource estimate.
-  EXPECT_EQ(allocatedResources(resources2, framework.role()), resources3);
+  EXPECT_EQ(allocatedResources(resources2, frameworkInfo.role()), resources3);
 
   driver.stop();
   driver.join();
