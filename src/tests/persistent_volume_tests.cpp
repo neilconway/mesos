@@ -264,12 +264,19 @@ TEST_P(PersistentVolumeTest, CreateAndDestroyPersistentVolumes)
   Try<Owned<cluster::Master>> master = StartMaster(masterFlags);
   ASSERT_SOME(master);
 
+  Future<SlaveRegisteredMessage> slaveRegisteredMessage =
+    FUTURE_PROTOBUF(SlaveRegisteredMessage(), _, _);
+
   slave::Flags slaveFlags = CreateSlaveFlags();
   slaveFlags.resources = getSlaveResources();
 
   Owned<MasterDetector> detector = master.get()->createDetector();
   Try<Owned<cluster::Slave>> slave = StartSlave(detector.get(), slaveFlags);
   ASSERT_SOME(slave);
+
+  Clock::advance(slaveFlags.authentication_backoff_factor);
+  Clock::advance(slaveFlags.registration_backoff_factor);
+  AWAIT_READY(slaveRegisteredMessage);
 
   MockScheduler sched;
   MesosSchedulerDriver driver(
@@ -283,8 +290,6 @@ TEST_P(PersistentVolumeTest, CreateAndDestroyPersistentVolumes)
     .WillRepeatedly(Return()); // Ignore subsequent offers.
 
   driver.start();
-
-  Clock::advance(masterFlags.allocation_interval);
 
   AWAIT_READY(offers);
   EXPECT_FALSE(offers->empty());
@@ -748,7 +753,6 @@ TEST_P(PersistentVolumeTest, AccessPersistentVolume)
   ASSERT_SOME(master);
 
   slave::Flags slaveFlags = CreateSlaveFlags();
-
   slaveFlags.resources = getSlaveResources();
 
   Owned<MasterDetector> detector = master.get()->createDetector();
@@ -1028,12 +1032,18 @@ TEST_P(PersistentVolumeTest, SharedPersistentVolumeRescindOnDestroy)
   ASSERT_SOME(master);
 
   slave::Flags slaveFlags = CreateSlaveFlags();
-
   slaveFlags.resources = getSlaveResources();
+
+  Future<SlaveRegisteredMessage> slaveRegisteredMessage =
+    FUTURE_PROTOBUF(SlaveRegisteredMessage(), _, _);
 
   Owned<MasterDetector> detector = master.get()->createDetector();
   Try<Owned<cluster::Slave>> slave = StartSlave(detector.get(), slaveFlags);
   ASSERT_SOME(slave);
+
+  Clock::advance(slaveFlags.authentication_backoff_factor);
+  Clock::advance(slaveFlags.registration_backoff_factor);
+  AWAIT_READY(slaveRegisteredMessage);
 
   // 1. Create framework1 so that all resources are offered to this framework.
   FrameworkInfo frameworkInfo1 = DEFAULT_FRAMEWORK_INFO;
@@ -1053,9 +1063,6 @@ TEST_P(PersistentVolumeTest, SharedPersistentVolumeRescindOnDestroy)
     .WillRepeatedly(Return()); // Ignore subsequent offers.
 
   driver1.start();
-
-  Clock::advance(slaveFlags.registration_backoff_factor);
-  Clock::advance(masterFlags.allocation_interval);
 
   AWAIT_READY(offers1);
   EXPECT_FALSE(offers1->empty());
@@ -1199,13 +1206,19 @@ TEST_P(PersistentVolumeTest, SharedPersistentVolumeMultipleFrameworks)
   Try<Owned<cluster::Master>> master = StartMaster(masterFlags);
   ASSERT_SOME(master);
 
-  slave::Flags slaveFlags = CreateSlaveFlags();
+  Future<SlaveRegisteredMessage> slaveRegisteredMessage =
+    FUTURE_PROTOBUF(SlaveRegisteredMessage(), _, _);
 
+  slave::Flags slaveFlags = CreateSlaveFlags();
   slaveFlags.resources = getSlaveResources();
 
   Owned<MasterDetector> detector = master.get()->createDetector();
   Try<Owned<cluster::Slave>> slave = StartSlave(detector.get(), slaveFlags);
   ASSERT_SOME(slave);
+
+  Clock::advance(slaveFlags.authentication_backoff_factor);
+  Clock::advance(slaveFlags.registration_backoff_factor);
+  AWAIT_READY(slaveRegisteredMessage);
 
   // 1. Create framework1 so that all resources are offered to this framework.
   FrameworkInfo frameworkInfo1 = DEFAULT_FRAMEWORK_INFO;
@@ -1225,8 +1238,6 @@ TEST_P(PersistentVolumeTest, SharedPersistentVolumeMultipleFrameworks)
     .WillRepeatedly(Return()); // Ignore subsequent offers.
 
   driver1.start();
-
-  Clock::advance(masterFlags.allocation_interval);
 
   AWAIT_READY(offers1);
   EXPECT_FALSE(offers1->empty());
@@ -1520,14 +1531,21 @@ TEST_P(PersistentVolumeTest, DestroyPersistentVolumeMultipleTasks)
   Try<Owned<cluster::Master>> master = StartMaster(masterFlags);
   ASSERT_SOME(master);
 
-  // Create a slave. Resources are being statically reserved because persistent
-  // volume creation requires reserved resources.
+  // Create a slave. Resources are being statically reserved because
+  // persistent volume creation requires reserved resources.
+  Future<SlaveRegisteredMessage> slaveRegisteredMessage =
+    FUTURE_PROTOBUF(SlaveRegisteredMessage(), _, _);
+
   slave::Flags slaveFlags = CreateSlaveFlags();
   slaveFlags.resources = getSlaveResources();
 
   Owned<MasterDetector> detector = master.get()->createDetector();
   Try<Owned<cluster::Slave>> slave = StartSlave(detector.get(), slaveFlags);
   ASSERT_SOME(slave);
+
+  Clock::advance(slaveFlags.authentication_backoff_factor);
+  Clock::advance(slaveFlags.registration_backoff_factor);
+  AWAIT_READY(slaveRegisteredMessage);
 
   // Create a scheduler/framework.
   MockScheduler sched;
@@ -1542,9 +1560,6 @@ TEST_P(PersistentVolumeTest, DestroyPersistentVolumeMultipleTasks)
     .WillOnce(FutureArg<1>(&offers));
 
   driver.start();
-
-  Clock::advance(slaveFlags.registration_backoff_factor);
-  Clock::advance(masterFlags.allocation_interval);
 
   AWAIT_READY(offers);
   EXPECT_FALSE(offers->empty());
@@ -1726,13 +1741,19 @@ TEST_P(PersistentVolumeTest, SharedPersistentVolumeMultipleIterations)
   Try<Owned<cluster::Master>> master = StartMaster(masterFlags);
   ASSERT_SOME(master);
 
-  slave::Flags slaveFlags = CreateSlaveFlags();
+  Future<SlaveRegisteredMessage> slaveRegisteredMessage =
+    FUTURE_PROTOBUF(SlaveRegisteredMessage(), _, _);
 
+  slave::Flags slaveFlags = CreateSlaveFlags();
   slaveFlags.resources = getSlaveResources();
 
   Owned<MasterDetector> detector = master.get()->createDetector();
   Try<Owned<cluster::Slave>> slave = StartSlave(detector.get(), slaveFlags);
   ASSERT_SOME(slave);
+
+  Clock::advance(slaveFlags.authentication_backoff_factor);
+  Clock::advance(slaveFlags.registration_backoff_factor);
+  AWAIT_READY(slaveRegisteredMessage);
 
   // 1. Create framework so that all resources are offered to this framework.
   FrameworkInfo frameworkInfo = DEFAULT_FRAMEWORK_INFO;
@@ -1752,9 +1773,6 @@ TEST_P(PersistentVolumeTest, SharedPersistentVolumeMultipleIterations)
     .WillRepeatedly(Return()); // Ignore subsequent offers.
 
   driver.start();
-
-  Clock::advance(slaveFlags.registration_backoff_factor);
-  Clock::advance(masterFlags.allocation_interval);
 
   AWAIT_READY(offers);
   EXPECT_FALSE(offers->empty());
@@ -1866,7 +1884,6 @@ TEST_P(PersistentVolumeTest, SlaveRecovery)
   ASSERT_SOME(master);
 
   slave::Flags slaveFlags = CreateSlaveFlags();
-
   slaveFlags.resources = getSlaveResources();
 
   Owned<MasterDetector> detector = master.get()->createDetector();

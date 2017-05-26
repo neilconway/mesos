@@ -155,6 +155,8 @@ master::Flags MesosTest::CreateMasterFlags()
 
   flags.authenticators = tests::flags.authenticators;
 
+  flags.allocation_interval = Seconds(20);
+
   return flags;
 }
 
