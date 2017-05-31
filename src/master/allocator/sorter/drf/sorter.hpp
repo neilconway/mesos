@@ -372,7 +372,7 @@ struct DRFSorter::Node
       }
     }
 
-    void update(
+    bool update(
         const SlaveID& slaveId,
         const Resources& oldAllocation,
         const Resources& newAllocation)
@@ -381,6 +381,11 @@ struct DRFSorter::Node
         oldAllocation.createStrippedScalarQuantity();
       const Resources newAllocationQuantity =
         newAllocation.createStrippedScalarQuantity();
+
+      // If the scalar quantities of old allocation and new allocation have
+      // changed, we need to recalculate the shares.
+      bool isTotalChanged =
+        (oldAllocationQuantity.flatten() != newAllocationQuantity.flatten());
 
       CHECK(resources[slaveId].contains(oldAllocation));
       CHECK(scalarQuantities.contains(oldAllocationQuantity));
@@ -391,13 +396,17 @@ struct DRFSorter::Node
       scalarQuantities -= oldAllocationQuantity;
       scalarQuantities += newAllocationQuantity;
 
-      foreach (const Resource& resource, oldAllocationQuantity) {
-        totals[resource.name()] -= resource.scalar();
+      if (isTotalChanged) {
+        foreach (const Resource& resource, oldAllocationQuantity) {
+          totals[resource.name()] -= resource.scalar();
+        }
+
+        foreach (const Resource& resource, newAllocationQuantity) {
+          totals[resource.name()] += resource.scalar();
+        }
       }
 
-      foreach (const Resource& resource, newAllocationQuantity) {
-        totals[resource.name()] += resource.scalar();
-      }
+      return isTotalChanged;
     }
 
     // We store the number of times this client has been chosen for

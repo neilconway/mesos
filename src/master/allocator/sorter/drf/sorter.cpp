@@ -341,23 +341,17 @@ void DRFSorter::update(
     const Resources& oldAllocation,
     const Resources& newAllocation)
 {
-  // TODO(bmahler): Check invariants between old and new allocations.
-  // Namely, the roles and quantities of resources should be the same!
-  // Otherwise, we need to ensure we re-calculate the shares, as
-  // is being currently done, for safety.
-
   Node* current = CHECK_NOTNULL(find(clientPath));
 
   // NOTE: We don't currently update the `allocation` for the root
   // node. This is debatable, but the current implementation doesn't
   // require looking at the allocation of the root node.
   while (current != root) {
-    current->allocation.update(slaveId, oldAllocation, newAllocation);
+    // If the total allocation has changed for a single entry in the hierarchy,
+    // we set the `dirty` flag so that  the shares are re-calculated.
+    dirty |= current->allocation.update(slaveId, oldAllocation, newAllocation);
     current = CHECK_NOTNULL(current->parent);
   }
-
-  // Just assume the total has changed, per the TODO above.
-  dirty = true;
 }
 
 
