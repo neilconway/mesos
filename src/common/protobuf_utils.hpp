@@ -345,6 +345,9 @@ struct Capabilities
         case FrameworkInfo::Capability::MULTI_ROLE:
           multiRole = true;
           break;
+        case FrameworkInfo::Capability::REGION_AWARE:
+          regionAware = true;
+          break;
       }
     }
   }
@@ -356,6 +359,7 @@ struct Capabilities
   bool sharedResources = false;
   bool partitionAware = false;
   bool multiRole = false;
+  bool regionAware = false;
 };
 
 

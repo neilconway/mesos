@@ -343,6 +343,18 @@ message FrameworkInfo {
       // provide this and move away from the deprecated
       // `role` field.
       MULTI_ROLE = 6;
+
+      // Indicates that the framework is prepared to receive offers
+      // for resources whose region is different from the master's
+      // region. Network links between hosts in different regions
+      // typically have higher latency and lower bandwidth than
+      // network links within a region, so frameworks should be
+      // careful to only place suitable workloads in remote regions.
+      // Frameworks that are not region-aware will never receive
+      // offers for remote agents; region-aware frameworks are assumed
+      // to implement their own logic to decide which workloads (if
+      // any) are suitable for placement on remote agents.
+      REGION_AWARE = 7;
     }
 
     // Enum fields should be optional, see: MESOS-4997.
