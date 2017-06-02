@@ -103,7 +103,8 @@ public:
         inverseOfferCallback,
       const Option<std::set<std::string>>&
         fairnessExcludeResourceNames = None(),
-      bool filterGpuResources = true);
+      bool filterGpuResources = true,
+      const Option<DomainInfo>& domain = None());
 
   void recover(
       const int _expectedAgentCount,
@@ -376,6 +377,8 @@ protected:
 
     protobuf::slave::Capabilities capabilities;
 
+    Option<DomainInfo> domain;
+
     // Represents a scheduled unavailability due to maintenance for a specific
     // slave, and the responses from frameworks as to whether they will be able
     // to gracefully handle this unavailability.
@@ -447,6 +450,9 @@ protected:
 
   // Filter GPU resources based on the `GPU_RESOURCES` framework capability.
   bool filterGpuResources;
+
+  // The master's domain, if any.
+  Option<DomainInfo> domain;
 
   // There are two stages of allocation. During the first stage resources
   // are allocated only to frameworks in roles with quota set. During the
@@ -527,6 +533,8 @@ private:
   // and the role and quota sorters (whose total resources match the agent's
   // total resources).
   void updateSlaveTotal(const SlaveID& slaveId, const Resources& total);
+
+  bool isRemoteSlave(const Slave& slave) const;
 };
 
 
