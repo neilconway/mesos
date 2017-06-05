@@ -983,6 +983,11 @@ message Attribute {
 message Resource {
   optional ResourceProviderID provider_id = 12;
 
+  // The domain where this resource is located, if any. All resources
+  // on a given agent will have the same domain. Resources from
+  // external resource providers might have different domains.
+  optional DomainInfo domain = 13;
+
   required string name = 1;
   required Value.Type type = 2;
   optional Value.Scalar scalar = 3;

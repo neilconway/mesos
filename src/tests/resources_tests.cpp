@@ -1715,6 +1715,84 @@ TEST(ResourceProviderIDTest, Contains) {
 }
 
 
+TEST(ResourcesTest, Domain)
+{
+  DomainInfo domain1 = createDomainInfo("region-abc", "zone-123");
+  DomainInfo domain2 = createDomainInfo("region-xyz", "zone-456");
+
+  Resource cpu1 = Resources::parse("cpus", "1", "*").get();
+
+  Resource cpu2 = cpu1;
+  cpu2.mutable_domain()->CopyFrom(domain1);
+
+  Resources r1 = cpu1;
+  Resources r2 = cpu2;
+
+  EXPECT_EQ(r1, r1);
+  EXPECT_EQ(r2, r2);
+
+  EXPECT_NE(r1, r2);
+  EXPECT_FALSE(r1.contains(r2));
+  EXPECT_FALSE(r2.contains(r1));
+
+  // `domain` should be preserved by `createStrippedScalarQuantity()`.
+  Resources r1Quantity = r1.createStrippedScalarQuantity();
+  Resources r2Quantity = r2.createStrippedScalarQuantity();
+
+  EXPECT_NE(r1Quantity, r2Quantity);
+  EXPECT_FALSE(r1Quantity.contains(r2Quantity));
+  EXPECT_FALSE(r2Quantity.contains(r1Quantity));
+
+  // `domain` should be preserved by `flatten()`.
+  Resources r1Flatten = r1.flatten();
+  Resources r2Flatten = r2.flatten();
+
+  EXPECT_NE(r1Flatten, r2Flatten);
+  EXPECT_FALSE(r1Flatten.contains(r2Flatten));
+  EXPECT_FALSE(r2Flatten.contains(r1Flatten));
+
+  // Check that distinct domain values are not considered equal.
+  Resource cpu3 = cpu1;
+  cpu3.mutable_domain()->CopyFrom(domain2);
+
+  Resources r3 = cpu3;
+
+  EXPECT_NE(r2, r3);
+  EXPECT_FALSE(r2.contains(r3));
+  EXPECT_FALSE(r3.contains(r2));
+
+  // Check that addition and subtraction work as expected.
+  Resource disk1 = createDiskResource("1", "*", None(), None());
+  disk1.mutable_domain()->CopyFrom(domain1);
+
+  Resources r5;
+  r5 += disk1;
+  r5 += disk1;
+
+  EXPECT_TRUE(r5.contains(disk1));
+  EXPECT_TRUE((r5 - disk1).contains(disk1));
+  EXPECT_FALSE((r5 - disk1 - disk1).contains(disk1));
+  EXPECT_TRUE((r5 - disk1 - disk1 + disk1).contains(disk1));
+
+  Resources r6;
+  r6 += r5;
+  r6 += cpu2;
+
+  EXPECT_TRUE(r6.contains(r5));
+  EXPECT_FALSE(r6.contains(r5 + r6));
+  EXPECT_FALSE(r5.contains(r6));
+
+  // Domain information should be omitted from the default stringified
+  // form of a Resources object.
+  {
+    ostringstream oss;
+
+    oss << r6;
+    EXPECT_EQ("disk(*):2; cpus(*):1", oss.str());
+  }
+}
+
+
 TEST(ResourcesTest, FlattenRoles)
 {
   Resource cpus1 = Resources::parse("cpus", "1", "role1").get();

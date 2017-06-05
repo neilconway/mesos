@@ -272,6 +272,12 @@ inline bool operator!=(
 }
 
 
+inline bool operator!=(const DomainInfo& left, const DomainInfo& right)
+{
+  return !(left == right);
+}
+
+
 inline bool operator<(const ContainerID& left, const ContainerID& right)
 {
   return left.value() < right.value();

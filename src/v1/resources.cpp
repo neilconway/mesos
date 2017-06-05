@@ -275,6 +275,8 @@ bool operator==(const Resource& left, const Resource& right)
     return false;
   }
 
+  // NOTE: `ResourceProviderID` and `DomainInfo` are ignored here.
+
   if (left.type() == Value::SCALAR) {
     return left.scalar() == right.scalar();
   } else if (left.type() == Value::RANGES) {
@@ -373,6 +375,15 @@ static bool addable(const Resource& left, const Resource& right)
     return false;
   }
 
+  // Check DomainInfo.
+  if (left.has_domain() != right.has_domain()) {
+    return false;
+  }
+
+  if (left.has_domain() && left.domain() != right.domain()) {
+    return false;
+  }
+
   return true;
 }
 
@@ -456,6 +467,15 @@ static bool subtractable(const Resource& left, const Resource& right)
   }
 
   if (left.has_provider_id() && left.provider_id() != right.provider_id()) {
+    return false;
+  }
+
+  // Check DomainInfo.
+  if (left.has_domain() != right.has_domain()) {
+    return false;
+  }
+
+  if (left.has_domain() && left.domain() != right.domain()) {
     return false;
   }
 
