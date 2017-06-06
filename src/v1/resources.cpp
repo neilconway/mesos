@@ -1166,6 +1166,14 @@ void Resources::unallocate()
 }
 
 
+void Resources::domain(const DomainInfo& domain)
+{
+  foreach (Resource_& resource_, resources) {
+    resource_.resource.mutable_domain()->CopyFrom(domain);
+  }
+}
+
+
 Resources Resources::filter(
     const lambda::function<bool(const Resource&)>& predicate) const
 {

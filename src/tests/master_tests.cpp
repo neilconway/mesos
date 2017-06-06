@@ -7305,6 +7305,13 @@ TEST_F(MasterTest, AgentDomainSameRegion)
   AWAIT_READY(offers);
   ASSERT_FALSE(offers->empty());
 
+  Offer offer = offers->front();
+
+  // Check that offered resources are tagged with the agent's domain.
+  foreach (const Resource& resource, offer.resources()) {
+    EXPECT_EQ(slaveFlags.domain, resource.domain());
+  }
+
   driver.stop();
   driver.join();
 }
@@ -7389,6 +7396,11 @@ TEST_F(MasterTest, AgentDomainDifferentRegion)
 
     Offer offer = offers->front();
 
+    // Check that offered resources are tagged with the agent's domain.
+    foreach (const Resource& resource, offer.resources()) {
+      EXPECT_EQ(slaveFlags.domain, resource.domain());
+    }
+
     // Check that we can launch a task in a remote region.
     TaskInfo task = createTask(offer, "sleep 60");
 
@@ -7451,6 +7463,13 @@ TEST_F(MasterTest, AgentDomainUnset)
 
   AWAIT_READY(offers);
   ASSERT_FALSE(offers->empty());
+
+  Offer offer = offers->front();
+
+  // Check that all offered resources do not have a domain.
+  foreach (const Resource& resource, offer.resources()) {
+    EXPECT_FALSE(resource.has_domain());
+  }
 
   driver.stop();
   driver.join();

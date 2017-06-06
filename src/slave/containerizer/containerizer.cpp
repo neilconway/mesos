@@ -198,6 +198,12 @@ Try<Resources> Containerizer::resources(const Flags& flags)
         flags.default_role).get();
   }
 
+  // If the agent is configured with a domain, add domain information
+  // to each of the agent's resources.
+  if (flags.domain.isSome()) {
+    resources.domain(flags.domain.get());
+  }
+
   Option<Error> error = Resources::validate(resources);
   if (error.isSome()) {
     return error.get();

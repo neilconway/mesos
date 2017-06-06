@@ -1776,6 +1776,7 @@ TEST(ResourcesTest, Domain)
 
   Resources r6;
   r6 += r5;
+  r6 += cpu1;
   r6 += cpu2;
 
   EXPECT_TRUE(r6.contains(r5));
@@ -1784,11 +1785,35 @@ TEST(ResourcesTest, Domain)
 
   // Domain information should be omitted from the default stringified
   // form of a Resources object.
+  //
+  // TODO(neilc): The fact that domains are omitted from the
+  // stringified format leads to weird output like that below.
   {
     ostringstream oss;
 
     oss << r6;
-    EXPECT_EQ("disk(*):2; cpus(*):1", oss.str());
+
+    EXPECT_EQ("disk(*):2; cpus(*):1; cpus(*):1", oss.str());
+  }
+
+  // Check that the `domain` helper works as expected.
+  Resources r7;
+  r7 += cpu1;
+  r7 += cpu1;
+  r7 += cpu2;
+  r7 += cpu2;
+  r7 += disk1;
+  r7 += disk1;
+
+  EXPECT_EQ(3u, r7.size());
+
+  DomainInfo domain3 = createDomainInfo("region-def", "zone-789");
+  r7.domain(domain3);
+
+  EXPECT_EQ(3u, r7.size());
+
+  foreach (const Resource& resource, r7) {
+    EXPECT_EQ(domain3, resource.domain());
   }
 }
 

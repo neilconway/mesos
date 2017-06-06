@@ -1146,6 +1146,14 @@ size_t Resources::count(const Resource& that) const
 }
 
 
+void Resources::domain(const DomainInfo& domain)
+{
+  foreach (Resource_& resource_, resources) {
+    resource_.resource.mutable_domain()->CopyFrom(domain);
+  }
+}
+
+
 void Resources::allocate(const string& role)
 {
   foreach (Resource_& resource_, resources) {

@@ -377,6 +377,9 @@ public:
   // Unallocates the resources.
   void unallocate();
 
+  // Changes the resources to use the specified domain.
+  void domain(const DomainInfo& domain);
+
   // Filter resources based on the given predicate.
   Resources filter(
       const lambda::function<bool(const Resource&)>& predicate) const;

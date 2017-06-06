@@ -36,6 +36,8 @@
 #include "master/flags.hpp"
 #include "master/master.hpp"
 
+#include "slave/paths.hpp"
+
 #include "tests/mesos.hpp"
 #include "tests/resources_utils.hpp"
 #include "tests/utils.hpp"
@@ -2277,6 +2279,82 @@ TEST_F(PersistentVolumeEndpointsTest, SlavesEndpointFullResources)
 
   driver.stop();
   driver.join();
+}
+
+
+// This test checks what happens when an agent has persistent
+// resources (e.g., volumes), and the agent's domain is
+// reconfigured. If the agent is gracefully shutdown (all tasks
+// killed), it should be able to restart with a new domain
+// successfully and preserve its old checkpointed resources.
+TEST_F(PersistentVolumeEndpointsTest, ChangeDomainOnAgentResources)
+{
+  Clock::pause();
+
+  // Start the master with configured domain.
+  master::Flags masterFlags = CreateMasterFlags();
+  masterFlags.domain = createDomainInfo("region-abc", "zone-123");
+
+  Try<Owned<cluster::Master>> master = StartMaster(masterFlags);
+  ASSERT_SOME(master);
+
+  slave::Flags slaveFlags = CreateSlaveFlags();
+  slaveFlags.resources = "disk(role1):1024";
+
+  Future<SlaveRegisteredMessage> slaveRegisteredMessage1 =
+    FUTURE_PROTOBUF(SlaveRegisteredMessage(), _, _);
+
+  Owned<MasterDetector> detector = master.get()->createDetector();
+  Try<Owned<cluster::Slave>> slave1 = StartSlave(detector.get(), slaveFlags);
+  ASSERT_SOME(slave1);
+
+  Clock::advance(slaveFlags.registration_backoff_factor);
+  AWAIT_READY(slaveRegisteredMessage1);
+
+  const SlaveID& slaveId1 = slaveRegisteredMessage1->slave_id();
+
+  Future<CheckpointResourcesMessage> checkpointResources =
+    FUTURE_PROTOBUF(CheckpointResourcesMessage(), _, _);
+
+  Resources volume = createPersistentVolume(
+      Megabytes(64),
+      "role1",
+      "id1",
+      "path1",
+      None(),
+      None(),
+      DEFAULT_CREDENTIAL.principal());
+
+  Future<Response> createResponse = process::http::post(
+      master.get()->pid,
+      "create-volumes",
+      createBasicAuthHeaders(DEFAULT_CREDENTIAL),
+      createRequestBody(slaveId1, "volumes", volume));
+
+  AWAIT_EXPECT_RESPONSE_STATUS_EQ(Accepted().status, createResponse);
+
+  // Make sure that the agent sees the new persistent volume.
+  AWAIT_READY(checkpointResources);
+  Clock::settle();
+
+  // Gracefully shutdown the agent.
+  slave1.get()->shutdown();
+
+  // Restart the agent with a configured domain.
+  slaveFlags.domain = masterFlags.domain;
+
+  Future<SlaveRegisteredMessage> slaveRegisteredMessage2 =
+    FUTURE_PROTOBUF(SlaveRegisteredMessage(), _, _);
+
+  Try<Owned<cluster::Slave>> slave2 = StartSlave(detector.get(), slaveFlags);
+  ASSERT_SOME(slave2);
+
+  Clock::advance(slaveFlags.registration_backoff_factor);
+  AWAIT_READY(slaveRegisteredMessage2);
+
+  const SlaveID& slaveId2 = slaveRegisteredMessage1->slave_id();
+
+  EXPECT_NE(slaveId1, slaveId2);
 }
 
 } // namespace tests {
