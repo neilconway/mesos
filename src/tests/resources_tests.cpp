@@ -2166,6 +2166,7 @@ TEST(DiskResourcesTest, Equals)
 
 TEST(DiskResourcesTest, DiskSourceEquals)
 {
+#if 0
   Resource::DiskInfo::Source s1 = createDiskSourcePath("mnt");
   Resource::DiskInfo::Source s2 = createDiskSourcePath("mnt2");
   Resource::DiskInfo::Source s3 = createDiskSourceMount("mnt");
@@ -2210,6 +2211,17 @@ TEST(DiskResourcesTest, DiskSourceEquals)
   EXPECT_NE(r11, r12);
   EXPECT_NE(r11, r13);
   EXPECT_NE(r13, r14);
+#endif
+
+
+  Resource::DiskInfo::Source s5 = createDiskSourceMount("mnt");
+  Resource::DiskInfo::Source s6 = createDiskSourceMount("mnt");
+  s5.clear_mount();
+
+  Resources r15 = createDiskResource("10", "*", None(), None(), s5);
+  Resources r16 = createDiskResource("10", "*", None(), None(), s6);
+
+  EXPECT_NE(r15, r16);
 }
 
 

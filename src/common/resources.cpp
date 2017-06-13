@@ -172,6 +172,10 @@ bool operator==(
     return false;
   }
 
+  if (left.has_mount() != right.has_mount()) {
+    LOG(WARNING) << "!!!!!!!!!!!!!!!!!!! bug";
+  }
+
   return true;
 }
 
@@ -190,9 +194,21 @@ bool operator==(const Resource::DiskInfo& left, const Resource::DiskInfo& right)
     return false;
   }
 
+  if (left.has_source()) {
+    bool result = (left.source() != right.source());
+
+    LOG(WARNING) << "INSIDE source check; result -> " << result;
+
+    if (result) {
+      return false;
+    }
+  }
+
+#if 0
   if (left.has_source() && left.source() != right.source()) {
     return false;
   }
+#endif
 
   // NOTE: We ignore 'volume' inside DiskInfo when doing comparison
   // because it describes how this resource will be used which has
