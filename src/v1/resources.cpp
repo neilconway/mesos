@@ -166,11 +166,11 @@ bool operator==(
     return false;
   }
 
-  if (left.has_path() && left.path() != right.path()) {
+  if (left.path() != right.path()) {
     return false;
   }
 
-  if (left.has_mount() && left.mount() != right.mount()) {
+  if (left.mount() != right.mount()) {
     return false;
   }
 
