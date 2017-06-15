@@ -867,7 +867,7 @@ JSON::Object Http::_flags() const
         flags.values[flag.effective_name().value] = value.get();
       }
     }
-    object.values["flags"] = std::move(flags);
+    object.values["flags"] = flags;
   }
 
   return object;

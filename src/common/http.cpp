@@ -249,7 +249,7 @@ JSON::Object model(const NetworkInfo& info)
     foreach (const string& group, info.groups()) {
       array.values.push_back(group);
     }
-    object.values["groups"] = std::move(array);
+    object.values["groups"] = array;
   }
 
   if (info.has_labels()) {
@@ -262,7 +262,7 @@ JSON::Object model(const NetworkInfo& info)
     foreach (const NetworkInfo::IPAddress& ipAddress, info.ip_addresses()) {
       array.values.push_back(JSON::protobuf(ipAddress));
     }
-    object.values["ip_addresses"] = std::move(array);
+    object.values["ip_addresses"] = array;
   }
 
   if (info.has_name()) {
@@ -287,7 +287,7 @@ JSON::Object model(const ContainerStatus& status)
     foreach (const NetworkInfo& info, status.network_infos()) {
       array.values.push_back(model(info));
     }
-    object.values["network_infos"] = std::move(array);
+    object.values["network_infos"] = array;
   }
 
   if (status.has_cgroup_info()) {
@@ -350,7 +350,7 @@ JSON::Object model(const Task& task)
     foreach (const TaskStatus& status, task.statuses()) {
       array.values.push_back(model(status));
     }
-    object.values["statuses"] = std::move(array);
+    object.values["statuses"] = array;
   }
 
   if (task.has_labels()) {

@@ -1857,7 +1857,7 @@ JSON::Object Master::Http::__flags() const
         flags.values[flag.effective_name().value] = value.get();
       }
     }
-    object.values["flags"] = std::move(flags);
+    object.values["flags"] = flags;
   }
 
   return object;
@@ -3286,7 +3286,7 @@ JSON::Object model(
         array.values.push_back(frameworkId.value());
       }
 
-      object.values["frameworks"] = std::move(array);
+      object.values["frameworks"] = array;
     }
   }
 
@@ -3423,7 +3423,7 @@ Future<Response> Master::Http::roles(
           array.values.push_back(model(name, weight, quota, role));
         }
 
-        object.values["roles"] = std::move(array);
+        object.values["roles"] = array;
       }
 
       return OK(object, request.url.query.get("jsonp"));

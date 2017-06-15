@@ -295,7 +295,7 @@ public:
         flags,
         true,
         fetcher.get(),
-        std::move(launcher),
+        launcher,
         provisioner->share(),
         isolators);
   }

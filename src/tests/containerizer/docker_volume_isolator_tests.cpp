@@ -202,7 +202,7 @@ protected:
         flags,
         true,
         fetcher.get(),
-        std::move(launcher),
+        launcher,
         provisioner->share(),
         {std::move(linuxIsolator),
          std::move(runtimeIsolator),
