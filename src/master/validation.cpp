@@ -1896,7 +1896,7 @@ Option<Error> validate(
     }
 
     if (!agentCapabilities.hierarchicalRole &&
-        strings::contains(resource.role(), "/")) {
+        strings::contains(Resources::reservationRole(resource).get(), "/")) {
       return Error(
           "Resource '" + stringify(resource) +
           "' with a hierarchical role cannot be reserved on an agent without "
@@ -2085,7 +2085,7 @@ Option<Error> validate(
     }
 
     if (!agentCapabilities.hierarchicalRole &&
-        strings::contains(volume.role(), "/")) {
+        strings::contains(Resources::reservationRole(volume).get(), "/")) {
       return Error(
           "Volume '" + stringify(volume) +
           "' with a hierarchical role cannot be created on an agent without "

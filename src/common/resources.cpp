@@ -958,15 +958,11 @@ bool Resources::isPersistentVolume(const Resource& resource)
 }
 
 
-bool Resources::isReserved(
-    const Resource& resource,
-    const Option<string>& role)
+bool Resources::isReserved(const Resource& resource, const Option<string>& role)
 {
-  if (role.isSome()) {
-    return !isUnreserved(resource) && role.get() == resource.role();
-  } else {
-    return !isUnreserved(resource);
-  }
+  Option<string> reservationRole_ = reservationRole(resource);
+  return reservationRole_.isSome() &&
+         (role.isNone() || (role.get() == reservationRole_.get()));
 }
 
 
@@ -974,7 +970,8 @@ bool Resources::isAllocatableTo(
     const Resource& resource,
     const std::string& role)
 {
-  return isUnreserved(resource) || roles::isSubroleOf(role, resource.role());
+  return isUnreserved(resource) ||
+         roles::isSubroleOf(role, reservationRole(resource).get());
 }
 
 
@@ -1001,6 +998,21 @@ bool Resources::isShared(const Resource& resource)
   return resource.has_shared();
 }
 
+
+Option<string> Resources::reservationRole(const Resource& resource)
+{
+  return resource.reservations_size() > 0
+           ? resource.reservations().rbegin()->role()
+           : Option<string>::none();
+}
+
+
+Option<string> Resources::reservationPrincipal(const Resource& resource)
+{
+  return resource.reservations_size() > 0
+           ? resource.reservations().rbegin()->principal()
+           : Option<string>::none();
+}
 
 /////////////////////////////////////////////////
 // Public member functions.
@@ -1211,8 +1223,9 @@ hashmap<string, Resources> Resources::reservations() const
   hashmap<string, Resources> result;
 
   foreach (const Resource_& resource_, resources) {
-    if (isReserved(resource_.resource)) {
-      result[resource_.resource.role()].add(resource_);
+    Option<string> reservationRole_ = reservationRole(resource_.resource);
+    if (reservationRole_.isSome()) {
+      result[reservationRole_.get()].add(resource_);
     }
   }
 
@@ -1776,11 +1789,16 @@ Option<Resources> Resources::find(const Resource& target) const
   Resources remaining = Resources(target).flatten();
 
   // First look in the target role, then unreserved, then any remaining role.
-  vector<lambda::function<bool(const Resource&)>> predicates = {
-    lambda::bind(isReserved, lambda::_1, target.role()),
-    isUnreserved,
-    [](const Resource&) { return true; }
-  };
+  vector<lambda::function<bool(const Resource&)>> predicates;
+
+  Option<string> reservationRole_ = reservationRole(target);
+  if (reservationRole_.isSome()) {
+    predicates.push_back(
+        lambda::bind(isReserved, lambda::_1, reservationRole_.get()));
+  }
+
+  predicates.push_back(isUnreserved);
+  predicates.push_back([](const Resource&) { return true; });
 
   foreach (const auto& predicate, predicates) {
     foreach (const Resource_& resource_, total.filter(predicate)) {

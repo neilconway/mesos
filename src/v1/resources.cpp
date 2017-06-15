@@ -960,15 +960,11 @@ bool Resources::isPersistentVolume(const Resource& resource)
 }
 
 
-bool Resources::isReserved(
-    const Resource& resource,
-    const Option<string>& role)
+bool Resources::isReserved(const Resource& resource, const Option<string>& role)
 {
-  if (role.isSome()) {
-    return !isUnreserved(resource) && role.get() == resource.role();
-  } else {
-    return !isUnreserved(resource);
-  }
+  Option<string> reservationRole_ = reservationRole(resource);
+  return reservationRole_.isSome() &&
+         (!role.isSome() || (role.get() == reservationRole_.get()));
 }
 
 
@@ -1003,6 +999,21 @@ bool Resources::isShared(const Resource& resource)
   return resource.has_shared();
 }
 
+
+Option<string> Resources::reservationRole(const Resource& resource)
+{
+  return resource.reservations_size() > 0
+           ? resource.reservations().rbegin()->role()
+           : Option<string>::none();
+}
+
+
+Option<string> Resources::reservationPrincipal(const Resource& resource)
+{
+  return resource.reservations_size() > 0
+           ? resource.reservations().rbegin()->principal()
+           : Option<string>::none();
+}
 
 /////////////////////////////////////////////////
 // Public member functions.
@@ -1213,8 +1224,9 @@ hashmap<string, Resources> Resources::reservations() const
   hashmap<string, Resources> result;
 
   foreach (const Resource_& resource_, resources) {
-    if (isReserved(resource_.resource)) {
-      result[resource_.resource.role()].add(resource_);
+    Option<string> reservationRole_ = reservationRole(resource_.resource);
+    if (reservationRole_.isSome()) {
+      result[reservationRole_.get()].add(resource_);
     }
   }
 
@@ -1779,7 +1791,7 @@ Option<Resources> Resources::find(const Resource& target) const
 
   // First look in the target role, then unreserved, then any remaining role.
   vector<lambda::function<bool(const Resource&)>> predicates = {
-    lambda::bind(isReserved, lambda::_1, target.role()),
+    lambda::bind(isReserved, lambda::_1, reservationRole(target)),
     isUnreserved,
     [](const Resource&) { return true; }
   };
