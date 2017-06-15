@@ -37,6 +37,7 @@
 #include <stout/json.hpp>
 #include <stout/lambda.hpp>
 #include <stout/option.hpp>
+#include <stout/protobuf.hpp>
 #include <stout/try.hpp>
 
 
@@ -657,5 +658,30 @@ hashmap<Key, Resources> operator+(
 }
 
 } // namespace mesos {
+
+namespace JSON {
+
+// TODO(mpark): With the introduction of reservation refinement, we have a new
+// resources format that uses `Resource.reservations` to express reservations,
+// rather than the old `Resource.role` and `Resource.reservation` pair.
+// When the new format is being used, `Resource.role` nor `Resource.reservation`
+// pair must not be set. The issue here is that since `Resource.role` is an
+// optional field __and__ has a default value, the generic Protobuf to JSON code
+// will print out the field with the default value. Since this will likely
+// confuse users, here we manually remove the `Resource.role` field if
+// `Resource.reservations` is set. Note that this is a temporary solution until
+// the `Resource.role` is marked deprecated, as it will no longer be printed
+// once marked deprecated.
+inline Object protobuf(const mesos::Resource& resource)
+{
+  Object json =
+    protobuf(static_cast<const google::protobuf::Message&>(resource));
+  if (json.values.find("reservations") != json.values.end()) {
+    json.values.erase("role");
+  }
+  return json;
+}
+
+}  // namespace JSON {
 
 #endif // __RESOURCES_HPP__
