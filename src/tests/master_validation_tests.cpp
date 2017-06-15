@@ -1985,9 +1985,7 @@ TEST_F(TaskValidationTest, TaskUsesRevocableResources)
   // A task with only non-revocable cpus is valid.
   task.add_resources()->CopyFrom(cpus);
 
-  Option<Error> error = task::internal::validateResources(task);
-
-  EXPECT_NONE(error);
+  EXPECT_NONE(task::internal::validateResources(task));
 
   // Revocable cpus.
   Resource revocableCpus = cpus;
@@ -1997,18 +1995,14 @@ TEST_F(TaskValidationTest, TaskUsesRevocableResources)
   task.clear_resources();
   task.add_resources()->CopyFrom(revocableCpus);
 
-  error = task::internal::validateResources(task);
-
-  EXPECT_NONE(error);
+  EXPECT_NONE(task::internal::validateResources(task));
 
   // A task with both revocable and non-revocable cpus is invalid.
   task.clear_resources();
   task.add_resources()->CopyFrom(cpus);
   task.add_resources()->CopyFrom(revocableCpus);
 
-  error = task::internal::validateResources(task);
-
-  EXPECT_SOME(error);
+  EXPECT_SOME(task::internal::validateResources(task));
 }
 
 
@@ -2071,9 +2065,7 @@ TEST_F(TaskValidationTest, TaskAndExecutorUseRevocableResources)
   executor.add_resources()->CopyFrom(cpus);
   task.mutable_executor()->CopyFrom(executor);
 
-  Option<Error> error = task::internal::validateTaskAndExecutorResources(task);
-
-  EXPECT_NONE(error);
+  EXPECT_NONE(task::internal::validateTaskAndExecutorResources(task));
 
   // Revocable cpus.
   Resource revocableCpus = cpus;
@@ -2086,9 +2078,7 @@ TEST_F(TaskValidationTest, TaskAndExecutorUseRevocableResources)
   executor.add_resources()->CopyFrom(revocableCpus);
   task.mutable_executor()->CopyFrom(executor);
 
-  error = task::internal::validateTaskAndExecutorResources(task);
-
-  EXPECT_NONE(error);
+  EXPECT_NONE(task::internal::validateTaskAndExecutorResources(task));
 
   // A task with revocable cpus and its executor with non-revocable
   // cpus is invalid.
@@ -2098,9 +2088,7 @@ TEST_F(TaskValidationTest, TaskAndExecutorUseRevocableResources)
   executor.add_resources()->CopyFrom(cpus);
   task.mutable_executor()->CopyFrom(executor);
 
-  error = task::internal::validateTaskAndExecutorResources(task);
-
-  EXPECT_SOME(error);
+  EXPECT_SOME(task::internal::validateTaskAndExecutorResources(task));
 
   // A task with non-revocable cpus and its executor with
   // non-revocable cpus is invalid.
@@ -2110,9 +2098,7 @@ TEST_F(TaskValidationTest, TaskAndExecutorUseRevocableResources)
   executor.add_resources()->CopyFrom(revocableCpus);
   task.mutable_executor()->CopyFrom(executor);
 
-  error = task::internal::validateTaskAndExecutorResources(task);
-
-  EXPECT_SOME(error);
+  EXPECT_SOME(task::internal::validateTaskAndExecutorResources(task));
 }
 
 
