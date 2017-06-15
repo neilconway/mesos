@@ -380,7 +380,7 @@ Try<Docker::Container> Docker::Container::create(const string& output)
                      " entry '" + stringify(entry) + "'");
       }
 
-      JSON::Object object = entry.as<JSON::Object>();
+      const JSON::Object& object = entry.as<JSON::Object>();
 
       Result<JSON::String> hostPath =
         object.at<JSON::String>("PathOnHost");

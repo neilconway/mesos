@@ -87,7 +87,7 @@ Try<Owned<Subsystem>> DevicesSubsystem::create(
     foreach (const DeviceAccess& device_access,
              flags.allowed_devices->allowed_devices()) {
       string path = device_access.device().path();
-      const DeviceAccess_Access access = device_access.access();
+      const DeviceAccess_Access& access = device_access.access();
       bool readAccess = (access.has_read() && access.read());
       bool writeAccess = (access.has_write() && access.write());
       bool mknodAccess = (access.has_mknod() && access.mknod());

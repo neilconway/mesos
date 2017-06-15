@@ -632,7 +632,7 @@ v1::agent::Response evolve<v1::agent::Response::GET_CONTAINERS>(
     v1::agent::Response::GetContainers::Container* container =
       response.mutable_get_containers()->add_containers();
 
-    JSON::Object object = value.as<JSON::Object>();
+    const JSON::Object& object = value.as<JSON::Object>();
 
     Result<JSON::String> container_id =
       object.find<JSON::String>("container_id");

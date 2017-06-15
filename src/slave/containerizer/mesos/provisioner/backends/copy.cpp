@@ -118,7 +118,7 @@ Future<Nothing> CopyBackendProcess::provision(
 
   list<Future<Nothing>> futures{Nothing()};
 
-  foreach (const string layer, layers) {
+  foreach (const string& layer, layers) {
     futures.push_back(
         futures.back().then(
             defer(self(), &Self::_provision, layer, rootfs)));
