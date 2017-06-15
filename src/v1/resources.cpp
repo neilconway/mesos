@@ -39,6 +39,8 @@
 #include <stout/strings.hpp>
 #include <stout/unreachable.hpp>
 
+#include "v1/resources_utils.hpp"
+
 using std::map;
 using std::ostream;
 using std::set;
@@ -608,6 +610,8 @@ Try<Resource> Resources::parse(
   resource.set_name(name);
   resource.set_role(role);
 
+  transformToPostReservationRefinementResource(&resource);
+
   if (_value.type() == Value::SCALAR) {
     resource.set_type(Value::SCALAR);
     resource.mutable_scalar()->CopyFrom(_value.scalar());
@@ -685,6 +689,8 @@ Try<vector<Resource>> Resources::fromJSON(
     if (!resource.has_role()) {
       resource.set_role(defaultRole);
     }
+
+    transformToPostReservationRefinementResource(&resource);
 
     // We add the Resource object even if it is empty or invalid.
     result.push_back(resource);
