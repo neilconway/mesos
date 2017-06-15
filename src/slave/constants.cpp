@@ -37,7 +37,7 @@ vector<SlaveInfo::Capability> AGENT_CAPABILITIES()
 {
   SlaveInfo::Capability::Type types[] = {
     SlaveInfo::Capability::MULTI_ROLE,
-    SlaveInfo::Capability::HIERARCHICAL_ROLE
+    SlaveInfo::Capability::HIERARCHICAL_ROLE,
   };
 
   vector<SlaveInfo::Capability> result;

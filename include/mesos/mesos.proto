@@ -343,6 +343,21 @@ message FrameworkInfo {
       // provide this and move away from the deprecated
       // `role` field.
       MULTI_ROLE = 6;
+
+      // This capability enables the framework to create reservation
+      // refinements via the `Resource.reservations` field. With this
+      // capability, the framework gets offered resources that have the
+      // `Resource.reservations` field set rather than `Resource.role` and
+      // `Resource.reservation`. Specifically, an empty `reservations` field
+      // denotes unreserved resources, and each `ReservationInfo` in the
+      // `reservations` field denotes a reservation that refines the previous
+      // one. For example, a reservation for role `foo` can be refined for
+      // role `foo/bar`. See `ReservationInfo` for more details.
+      // Without this capability, a framework simply is not offered resources
+      // with reservation refinement. Resources are said to have reservation
+      // refinement if it uses the `Resource.reservations` field, and
+      // `Resource.reservations_size() > 1`.
+      RESERVATION_REFINEMENT = 7; // EXPERIMENTAL.
     }
 
     // Enum fields should be optional, see: MESOS-4997.
@@ -814,6 +829,13 @@ message SlaveInfo {
       // Agents with this capability know to transform the '/' (slashes)
       // into ' ' (spaces).
       HIERARCHICAL_ROLE = 2;
+
+      // This expresses the ability for the agent to be able to launch
+      // tasks, reserve resources, and create volumes using resources
+      // with reservation refinements. Resources are said to have
+      // reservation refinement if it uses the `Resource.reservations`
+      // field, and `Resource.reservations_size() > 1`.
+      RESERVATION_REFINEMENT = 3;
     }
 
     // Enum fields should be optional, see: MESOS-4997.
@@ -923,6 +945,9 @@ message Resource {
   // The role that this resource is reserved for. If "*", this indicates
   // that the resource is unreserved. Otherwise, the resource will only
   // be offered to frameworks that belong to this role.
+  // NOTE: This field must not be set if `reservations` is set.
+  //       See the 'Two Resource Formats' section for more details.
+  // TODO(mpark): Deprecate once `reservations` is no longer experimental.
   optional string role = 6 [default = "*"];
 
   // This was initially introduced to support MULTI_ROLE capable
@@ -941,13 +966,108 @@ message Resource {
 
   optional AllocationInfo allocation_info = 11;
 
+  // Two Resource Formats
+  //
+  // There are two formats of the `Resource` message depending on whether
+  // a framework has the RESERVATION_REFINEMENT capability.
+  //
+  // __WITHOUT__ the RESERVATION_REFINEMENT capability, the framework is offered
+  // resources in the "pre-reservation-refinement" format. In this format, the
+  // `Resource.role` and `Resource.reservation` fields are used in conjunction
+  // to describe the reservation state of a `Resource` message.
+  // The following is an overview of the possible reservation states:
+  //
+  //   unreserved: { role: "*", reservation: <not set>, reservations: <unused> }
+  //   static : { role: "eng", reservation: <not set>, reservations: <unused> }
+  //   dynamic: {
+  //              role: "eng",
+  //              reservation: {
+  //                type: <unused>,
+  //                role: <unused>,
+  //                principal: <optional>,
+  //                labels: <optional>
+  //              },
+  //              reservations: <unused>
+  //            }
+  //
+  // __WITH__ the RESERVATION_REFINEMENT capability, the framework is offered
+  // resources in the "post-reservation-refinement" format. In this format, the
+  // reservation state of a `Resource` message is expressed solely in
+  // `Resource.reservations` field.
+  // The following is an overview of the possible reservation states:
+
+  //   unreserved: { role: <unused>, reservation: <unused>, reservations: [] }
+  //   static: {
+  //             role: <unused>,
+  //             reservation: <unused>,
+  //             reservations: [
+  //               {
+  //                 type: STATIC,
+  //                 role: "eng",
+  //                 principal: <optional>,
+  //                 labels: <optional>
+  //               }
+  //             ]
+  //           }
+  //   dynamic: {
+  //              role: <unused>,
+  //              reservation: <unused>,
+  //              reservations: [
+  //                {
+  //                  type: DYNAMIC,
+  //                  role: "eng",
+  //                  principal: <optional>,
+  //                  labels: <optional>
+  //                }
+  //              ]
+  //            }
+  //
+  // We can also __refine__ reservations with this capability like so:
+  //
+  //   refined: {
+  //              role: <unused>,
+  //              reservation: <unused>,
+  //              reservations: [
+  //                {
+  //                  type: STATIC or DYNAMIC,
+  //                  role: "eng",
+  //                  principal: <optional>,
+  //                  labels: <optional>
+  //                },
+  //                {
+  //                  type: DYNAMIC,
+  //                  role: "eng/front_end",
+  //                  principal: <optional>,
+  //                  labels: <optional>
+  //                }
+  //              ]
+  //            }
+  //
+
   message ReservationInfo {
-    // Describes a dynamic reservation. A dynamic reservation is
-    // acquired by an operator via the '/reserve' HTTP endpoint or by
-    // a framework via the offer cycle by sending back an
+    // Describes a reservation. A static reservation is set by the operator on
+    // the command-line and they are immutable without agent restart. A dynamic
+    // reservation is acquired by an operator via the '/reserve' HTTP endpoint
+    // or by a framework via the offer cycle by sending back an
     // 'Offer::Operation::Reserve' message.
-    // NOTE: We currently do not allow frameworks with role "*" to
-    // make dynamic reservations.
+    // NOTE: We currently do not allow frameworks with role "*" to make dynamic
+    // reservations.
+
+    enum Type {
+      UNKNOWN = 0;
+      STATIC = 1;
+      DYNAMIC = 2;
+    }
+
+    // The type of this reservation.
+    // NOTE: This field must not be set if `Resource.reservation` is set.
+    //       See the 'Two Resource Formats' section for more details.
+    optional Type type = 4;
+
+    // The role to which this reservation is made for.
+    // NOTE: This field must not be set if `Resource.reservation` is set.
+    //       See the 'Two Resource Formats' section for more details.
+    optional string role = 3;
 
     // Indicates the principal, if any, of the framework or operator
     // that reserved this resource. If reserved by a framework, the
@@ -969,7 +1089,22 @@ message Resource {
   // If this is set, this resource was dynamically reserved by an
   // operator or a framework. Otherwise, this resource is either unreserved
   // or statically reserved by an operator via the --resources flag.
+  // NOTE: This field must not be set if `reservations` is set.
+  //       See the 'Two Resource Formats' section for more details.
+  // TODO(mpark): Deprecate once `reservations` is no longer experimental.
   optional ReservationInfo reservation = 8;
+
+  // The stack of reservations. If this field is empty, it indicates that this
+  // resource is unreserved. Otherwise, the resource is reserved. The first
+  // `ReservationInfo` may have type `STATIC` or `DYNAMIC`, but the rest must
+  // have `DYNAMIC`. One can create a new reservation on top of an existing
+  // one by pushing a new `ReservationInfo` to the back. The last
+  // `ReservationInfo` in this stack is the "current" reservation. The new
+  // reservation's role, must be a child of the current reservation's role.
+  // NOTE: This field must not be set if `reservation` is set.
+  //       See the 'Two Resource Formats' section for more details.
+  // TODO(mpark): Deprecate `role` and `reservation` once this is stable.
+  repeated ReservationInfo reservations = 13;  // EXPERIMENTAL.
 
   message DiskInfo {
     // Describes a persistent disk volume.
