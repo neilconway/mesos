@@ -13,6 +13,7 @@
 #include <gtest/gtest.h>
 
 #include <string>
+#include <utility>
 
 #include <stout/duration.hpp>
 #include <stout/gtest.hpp>
@@ -36,6 +37,7 @@ using http::Response;
 using http::Unauthorized;
 
 using process::Future;
+using process::Owned;
 using process::READWRITE_HTTP_AUTHENTICATION_REALM;
 using process::UPID;
 
@@ -48,11 +50,11 @@ class ProfilerTest : public ::testing::Test
 protected:
   Future<Nothing> setAuthenticator(
       const string& realm,
-      process::Owned<Authenticator> authenticator)
+      Owned<Authenticator> authenticator)
   {
     realms.insert(realm);
 
-    return authentication::setAuthenticator(realm, authenticator);
+    return authentication::setAuthenticator(realm, std::move(authenticator));
   }
 
   virtual void TearDown()
@@ -119,12 +121,13 @@ TEST_F(ProfilerTest, StartAndStop)
 // requests when HTTP authentication is enabled.
 TEST_F(ProfilerTest, StartAndStopAuthenticationEnabled)
 {
-  process::Owned<Authenticator> authenticator(
+  Owned<Authenticator> authenticator(
     new BasicAuthenticator(
         READWRITE_HTTP_AUTHENTICATION_REALM, {{"foo", "bar"}}));
 
   AWAIT_READY(
-      setAuthenticator(READWRITE_HTTP_AUTHENTICATION_REALM, authenticator));
+      setAuthenticator(
+          READWRITE_HTTP_AUTHENTICATION_REALM, std::move(authenticator)));
 
   UPID upid("profiler", process::address());
 
