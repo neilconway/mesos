@@ -712,7 +712,7 @@ Option<Error> validateUniquePersistenceID(
   Resources volumes = resources.persistentVolumes();
 
   foreach (const Resource& volume, volumes) {
-    const string& role = volume.role();
+    string role = Resources::reservationRole(volume).get();
     const string& id = volume.disk().persistence().id();
 
     if (persistenceIds.contains(role) &&
@@ -1909,19 +1909,22 @@ Option<Error> validate(
       // return principals of that form.
       CHECK_SOME(principal->value);
 
-      if (!resource.reservation().has_principal()) {
+      const Resource::ReservationInfo& reservation =
+        *resource.reservations().rbegin();
+
+      if (!reservation.has_principal()) {
         return Error(
             "A reserve operation was attempted by principal '" +
             stringify(principal.get()) + "', but there is a "
             "reserved resource in the request with no principal set");
       }
 
-      if (principal != resource.reservation().principal()) {
+      if (principal != reservation.principal()) {
         return Error(
             "A reserve operation was attempted by authenticated principal '" +
             stringify(principal.get()) + "', which does not match a "
             "reserved resource in the request with principal '" +
-            resource.reservation().principal() + "'");
+            reservation.principal() + "'");
       }
     }
 
@@ -1938,26 +1941,31 @@ Option<Error> validate(
             " perform reservations on allocated resources");
       }
 
-      if (resource.allocation_info().role() != resource.role()) {
+      if (resource.allocation_info().role() !=
+          Resources::reservationRole(resource).get()) {
         return Error(
-            "A reserve operation was attempted for a resource with role"
-            " '" + resource.role() + "', but the resource was allocated"
-            " to role '" + resource.allocation_info().role() + "'");
+            "A reserve operation was attempted for a resource with role '" +
+            Resources::reservationRole(resource).get() +
+            "', but the resource was allocated to role '" +
+            resource.allocation_info().role() + "'");
       }
 
       if (!frameworkRoles->contains(resource.allocation_info().role())) {
         return Error(
-            "A reserve operation was attempted for a resource allocated"
-            " to role '" + resource.role() + "', but the framework only"
-            " has roles '" + stringify(frameworkRoles.get()) + "'");
+            "A reserve operation was attempted for a resource allocated to "
+            "role '" +
+            resource.allocation_info().role() +
+            "', but the framework only has roles '" +
+            stringify(frameworkRoles.get()) + "'");
       }
 
-      if (!frameworkRoles->contains(resource.role())) {
+      if (!frameworkRoles->contains(
+              Resources::reservationRole(resource).get())) {
         return Error(
-            "A reserve operation was attempted for a resource with role"
-            " '" + resource.role() + "', but the framework can only"
-            " reserve resources with roles"
-            " '" + stringify(frameworkRoles.get()) + "'");
+            "A reserve operation was attempted for a resource with role '" +
+            Resources::reservationRole(resource).get() +
+            "', but the framework can only reserve resources with roles '" +
+            stringify(frameworkRoles.get()) + "'");
       }
     } else {
       // If no `FrameworkInfo` was passed we are dealing with a

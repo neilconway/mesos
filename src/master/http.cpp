@@ -1105,13 +1105,15 @@ Future<Response> Master::Http::createVolumes(
 
 Future<Response> Master::Http::_createVolumes(
     const SlaveID& slaveId,
-    const RepeatedPtrField<Resource>& volumes,
+    RepeatedPtrField<Resource> volumes,
     const Option<Principal>& principal) const
 {
   Slave* slave = master->slaves.registered.get(slaveId);
   if (slave == nullptr) {
     return BadRequest("No agent found with specified ID");
   }
+
+  transformToPostReservationRefinementResources(&volumes);
 
   // Create an offer operation.
   Offer::Operation operation;
@@ -1280,13 +1282,15 @@ Future<Response> Master::Http::destroyVolumes(
 
 Future<Response> Master::Http::_destroyVolumes(
     const SlaveID& slaveId,
-    const RepeatedPtrField<Resource>& volumes,
+    RepeatedPtrField<Resource> volumes,
     const Option<Principal>& principal) const
 {
   Slave* slave = master->slaves.registered.get(slaveId);
   if (slave == nullptr) {
     return BadRequest("No agent found with specified ID");
   }
+
+  transformToPostReservationRefinementResources(&volumes);
 
   // Create an offer operation.
   Offer::Operation operation;
@@ -2222,13 +2226,15 @@ Future<Response> Master::Http::reserve(
 
 Future<Response> Master::Http::_reserve(
     const SlaveID& slaveId,
-    const Resources& resources,
+    RepeatedPtrField<Resource> resources,
     const Option<Principal>& principal) const
 {
   Slave* slave = master->slaves.registered.get(slaveId);
   if (slave == nullptr) {
     return BadRequest("No agent found with specified ID");
   }
+
+  transformToPostReservationRefinementResources(&resources);
 
   // Create an offer operation.
   Offer::Operation operation;
@@ -2268,7 +2274,8 @@ Future<Response> Master::Http::reserveResources(
   CHECK_EQ(mesos::master::Call::RESERVE_RESOURCES, call.type());
 
   const SlaveID& slaveId = call.reserve_resources().slave_id();
-  const Resources& resources = call.reserve_resources().resources();
+  const RepeatedPtrField<Resource>& resources =
+    call.reserve_resources().resources();
 
   return _reserve(slaveId, resources, principal);
 }
@@ -4712,13 +4719,15 @@ Future<Response> Master::Http::unreserve(
 
 Future<Response> Master::Http::_unreserve(
     const SlaveID& slaveId,
-    const Resources& resources,
+    RepeatedPtrField<Resource> resources,
     const Option<Principal>& principal) const
 {
   Slave* slave = master->slaves.registered.get(slaveId);
   if (slave == nullptr) {
     return BadRequest("No agent found with specified ID");
   }
+
+  transformToPostReservationRefinementResources(&resources);
 
   // Create an offer operation.
   Offer::Operation operation;
@@ -4815,7 +4824,8 @@ Future<Response> Master::Http::unreserveResources(
   CHECK_EQ(mesos::master::Call::UNRESERVE_RESOURCES, call.type());
 
   const SlaveID& slaveId = call.unreserve_resources().slave_id();
-  const Resources& resources = call.unreserve_resources().resources();
+  const RepeatedPtrField<Resource>& resources =
+    call.unreserve_resources().resources();
 
   return _unreserve(slaveId, resources, principal);
 }

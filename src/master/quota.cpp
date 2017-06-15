@@ -25,6 +25,8 @@
 #include <stout/error.hpp>
 #include <stout/option.hpp>
 
+#include "common/resources_utils.hpp"
+
 using google::protobuf::RepeatedPtrField;
 
 using mesos::quota::QuotaInfo;
@@ -131,23 +133,27 @@ Option<Error> quotaInfo(const QuotaInfo& quotaInfo)
     return Error("QuotaInfo with empty 'guarantee'");
   }
 
-  foreach (const Resource& resource, quotaInfo.guarantee()) {
-    // Check that each guarantee/resource is valid.
-    Option<Error> resourceError = Resources::validate(resource);
-    if (resourceError.isSome()) {
-      return Error(
-          "QuotaInfo with invalid resource: " + resourceError->message);
-    }
+  // Check that each guarantee/resource is valid.
+  Option<Error> validate = Resources::validate(quotaInfo.guarantee());
+  if (validate.isSome()) {
+    return Error("QuotaInfo with invalid resource: " + validate->message);
+  }
 
+  RepeatedPtrField<Resource> guarantee = quotaInfo.guarantee();
+
+  transformToPostReservationRefinementResources(&guarantee);
+
+  foreach (const Resource& resource, guarantee) {
     // Check that `resource` does not contain fields that are
     // irrelevant for quota.
-
-    if (resource.has_reservation()) {
-      return Error("QuotaInfo must not contain ReservationInfo");
+    if (resource.reservations_size() > 0) {
+      return Error("QuotaInfo must not contain any ReservationInfo");
     }
+
     if (resource.has_disk()) {
       return Error("QuotaInfo must not contain DiskInfo");
     }
+
     if (resource.has_revocable()) {
       return Error("QuotaInfo must not contain RevocableInfo");
     }

@@ -3494,11 +3494,12 @@ Future<bool> Master::authorizeReserveResources(
   hashset<string> roles;
   list<Future<bool>> authorizations;
   foreach (const Resource& resource, reserve.resources()) {
-    if (!roles.contains(resource.role())) {
-      roles.insert(resource.role());
+    string role = Resources::reservationRole(resource).get();
+    if (!roles.contains(role)) {
+      roles.insert(role);
 
       request.mutable_object()->mutable_resource()->CopyFrom(resource);
-      request.mutable_object()->set_value(resource.role());
+      request.mutable_object()->set_value(role);
       authorizations.push_back(authorizer.get()->authorized(request));
     }
   }
@@ -3552,12 +3553,10 @@ Future<bool> Master::authorizeUnreserveResources(
     // authorization, we must check here that this resource is
     // dynamically reserved. If it isn't, the error will be caught
     // during validation.
-    if (Resources::isDynamicallyReserved(resource) &&
-        resource.reservation().has_principal()) {
+    Option<string> principal = Resources::reservationPrincipal(resource);
+    if (Resources::isDynamicallyReserved(resource) && principal.isSome()) {
       request.mutable_object()->mutable_resource()->CopyFrom(resource);
-
-      request.mutable_object()->set_value(
-          resource.reservation().principal());
+      request.mutable_object()->set_value(principal.get());
 
       authorizations.push_back(authorizer.get()->authorized(request));
     }
@@ -3607,11 +3606,12 @@ Future<bool> Master::authorizeCreateVolume(
   hashset<string> roles;
   list<Future<bool>> authorizations;
   foreach (const Resource& volume, create.volumes()) {
-    if (!roles.contains(volume.role())) {
-      roles.insert(volume.role());
+    string role = Resources::reservationRole(volume).get();
+    if (!roles.contains(role)) {
+      roles.insert(role);
 
       request.mutable_object()->mutable_resource()->CopyFrom(volume);
-      request.mutable_object()->set_value(volume.role());
+      request.mutable_object()->set_value(role);
       authorizations.push_back(authorizer.get()->authorized(request));
     }
   }
@@ -3905,6 +3905,7 @@ void Master::accept(
   // resources if the scheduler has not done so already.
   foreach (Offer::Operation& operation, *accept.mutable_operations()) {
     protobuf::injectAllocationInfo(&operation, allocationInfo.get());
+    transformToPostReservationRefinementResources(&operation);
   }
 
   CHECK_SOME(slaveId);
@@ -6050,6 +6051,8 @@ void Master::__reregisterSlave(
       injectAllocationInfo(
           task.mutable_resources(),
           frameworks_.at(task.framework_id()));
+
+      transformToPostReservationRefinementResources(task.mutable_resources());
     }
 
     foreach (ExecutorInfo& executor, adjustedExecutorInfos) {
@@ -6058,6 +6061,9 @@ void Master::__reregisterSlave(
       injectAllocationInfo(
           executor.mutable_resources(),
           frameworks_.at(executor.framework_id()));
+
+      transformToPostReservationRefinementResources(
+          executor.mutable_resources());
     }
   }
 
@@ -7292,6 +7298,12 @@ void Master::offer(
         if (resource.name() != "ephemeral_ports") {
           offer_.add_resources()->CopyFrom(resource);
         }
+      }
+
+      if (!slave->capabilities.reservationRefinement ||
+          !framework->capabilities.reservationRefinement) {
+        transformToPreReservationRefinementResources(
+            offer_.mutable_resources());
       }
 
       // Add the offer *AND* the corresponding slave's PID.
@@ -9239,18 +9251,21 @@ void Master::subscribe(const HttpConnection& http)
 
 Slave::Slave(
     Master* const _master,
-    const SlaveInfo& _info,
+    SlaveInfo _info,
     const UPID& _pid,
     const MachineID& _machineId,
     const string& _version,
     const vector<SlaveInfo::Capability>& _capabilites,
     const Time& _registeredTime,
-    const Resources& _checkpointedResources,
+    vector<Resource> _checkpointedResources,
     const vector<ExecutorInfo>& executorInfos,
     const vector<Task>& tasks)
   : master(_master),
     id(_info.id()),
-    info(_info),
+    info([&_info] {
+      transformToPostReservationRefinementResources(_info.mutable_resources());
+      return _info;
+    }()),
     machineId(_machineId),
     pid(_pid),
     version(_version),
@@ -9258,14 +9273,17 @@ Slave::Slave(
     registeredTime(_registeredTime),
     connected(true),
     active(true),
-    checkpointedResources(_checkpointedResources),
+    checkpointedResources([&_checkpointedResources] {
+      transformToPostReservationRefinementResources(&_checkpointedResources);
+      return _checkpointedResources;
+    }()),
     observer(nullptr)
 {
   CHECK(_info.has_id());
 
   Try<Resources> resources = applyCheckpointedResources(
       info.resources(),
-      _checkpointedResources);
+      checkpointedResources);
 
   // NOTE: This should be validated during slave recovery.
   CHECK_SOME(resources);

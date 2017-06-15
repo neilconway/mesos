@@ -115,13 +115,13 @@ struct Role;
 struct Slave
 {
   Slave(Master* const _master,
-        const SlaveInfo& _info,
+        SlaveInfo _info,
         const process::UPID& _pid,
         const MachineID& _machineId,
         const std::string& _version,
         const std::vector<SlaveInfo::Capability>& _capabilites,
         const process::Time& _registeredTime,
-        const Resources& _checkpointedResources,
+        std::vector<Resource> _checkpointedResources,
         const std::vector<ExecutorInfo>& executorInfos =
           std::vector<ExecutorInfo>(),
         const std::vector<Task>& tasks =
@@ -1383,25 +1383,25 @@ private:
 
     process::Future<process::http::Response> _reserve(
         const SlaveID& slaveId,
-        const Resources& resources,
+        google::protobuf::RepeatedPtrField<Resource> resources,
         const Option<process::http::authentication::Principal>&
             principal) const;
 
     process::Future<process::http::Response> _unreserve(
         const SlaveID& slaveId,
-        const Resources& resources,
+        google::protobuf::RepeatedPtrField<Resource> resources,
         const Option<process::http::authentication::Principal>&
             principal) const;
 
     process::Future<process::http::Response> _createVolumes(
         const SlaveID& slaveId,
-        const google::protobuf::RepeatedPtrField<Resource>& volumes,
+        google::protobuf::RepeatedPtrField<Resource> volumes,
         const Option<process::http::authentication::Principal>&
             principal) const;
 
     process::Future<process::http::Response> _destroyVolumes(
         const SlaveID& slaveId,
-        const google::protobuf::RepeatedPtrField<Resource>& volumes,
+        google::protobuf::RepeatedPtrField<Resource> volumes,
         const Option<process::http::authentication::Principal>&
             principal) const;
 
