@@ -1009,6 +1009,7 @@ libmesos_no_3rdparty_la_SOURCES +=					\
   v1/attributes.cpp							\
   v1/mesos.cpp								\
   v1/resources.cpp							\
+  v1/resources_utils.cpp						\
   v1/values.cpp								\
   version/version.cpp							\
   watcher/whitelist_watcher.cpp						\

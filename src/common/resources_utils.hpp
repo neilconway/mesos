@@ -17,6 +17,10 @@
 #ifndef __RESOURCES_UTILS_HPP__
 #define __RESOURCES_UTILS_HPP__
 
+#include <vector>
+
+#include <google/protobuf/repeated_field.h>
+
 #include <mesos/mesos.hpp>
 #include <mesos/resources.hpp>
 
@@ -37,6 +41,34 @@ bool needCheckpointing(const Resource& resource);
 Try<Resources> applyCheckpointedResources(
     const Resources& resources,
     const Resources& checkpointedResources);
+
+
+void transformToPreReservationRefinementResource(Resource* resource);
+
+
+void transformToPostReservationRefinementResource(Resource* resource);
+
+
+void transformToPreReservationRefinementResources(
+    google::protobuf::RepeatedPtrField<Resource>* resources);
+
+
+void transformToPreReservationRefinementResources(
+    std::vector<Resource>* resources);
+
+
+void transformToPostReservationRefinementResources(
+    google::protobuf::RepeatedPtrField<Resource>* resources);
+
+
+void transformToPostReservationRefinementResources(
+    std::vector<Resource>* resources);
+
+
+void transformToPreReservationRefinementResources(Offer::Operation* operation);
+
+
+void transformToPostReservationRefinementResources(Offer::Operation* operation);
 
 } // namespace mesos {
 

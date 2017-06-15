@@ -83,4 +83,242 @@ Try<Resources> applyCheckpointedResources(
   return totalResources;
 }
 
+
+void transformToPreReservationRefinementResource(Resource* resource)
+{
+  switch (resource->reservations_size()) {
+    // unreserved resource.
+    case 0: {
+      CHECK(!resource->has_reservation());
+      resource->set_role("*");
+      break;
+    }
+    // resource with a single reservation.
+    case 1: {
+      const Resource::ReservationInfo& reservation = resource->reservations(0);
+      if (reservation.type() == Resource::ReservationInfo::DYNAMIC) {
+        resource->mutable_reservation()->set_principal(reservation.principal());
+      }
+
+      resource->set_role(reservation.role());
+      resource->clear_reservations();
+      break;
+    }
+    // resource with refined reservations.
+    default: { /* do nothing */
+    };
+  }
+}
+
+
+void transformToPostReservationRefinementResource(Resource* resource)
+{
+  if (resource->reservations_size() > 0) {
+    return;
+  }
+
+  // unreserved resources.
+  if (resource->role() == "*" && !resource->has_reservation()) {
+    resource->clear_role();
+    return;
+  }
+
+  Resource::ReservationInfo reservation;
+
+  if (!resource->has_reservation()) {
+    reservation.set_type(Resource::ReservationInfo::STATIC);
+  } else {
+    reservation = resource->reservation();
+    resource->clear_reservation();
+    reservation.set_type(Resource::ReservationInfo::DYNAMIC);
+  }
+
+  reservation.set_role(resource->role());
+  resource->clear_role();
+  CHECK_EQ(0, resource->reservations_size());
+  resource->add_reservations()->CopyFrom(reservation);
+}
+
+
+void transformToPreReservationRefinementResources(
+    google::protobuf::RepeatedPtrField<Resource>* resources)
+{
+  foreach (Resource& resource, *resources) {
+    transformToPreReservationRefinementResource(&resource);
+  }
+}
+
+
+void transformToPreReservationRefinementResources(
+    std::vector<Resource>* resources)
+{
+  foreach (Resource& resource, *resources) {
+    transformToPreReservationRefinementResource(&resource);
+  }
+}
+
+
+void transformToPostReservationRefinementResources(
+    google::protobuf::RepeatedPtrField<Resource>* resources)
+{
+  foreach (Resource& resource, *resources) {
+    transformToPostReservationRefinementResource(&resource);
+  }
+}
+
+
+void transformToPostReservationRefinementResources(
+    std::vector<Resource>* resources)
+{
+  foreach (Resource& resource, *resources) {
+    transformToPostReservationRefinementResource(&resource);
+  }
+}
+
+
+void transformToPreReservationRefinementResources(Offer::Operation* operation)
+{
+  switch (operation->type()) {
+    case Offer::Operation::LAUNCH: {
+      Offer::Operation::Launch* launch = operation->mutable_launch();
+
+      foreach (TaskInfo& task, *launch->mutable_task_infos()) {
+        transformToPreReservationRefinementResources(task.mutable_resources());
+
+        if (task.has_executor()) {
+          transformToPreReservationRefinementResources(
+              task.mutable_executor()->mutable_resources());
+        }
+      }
+      break;
+    }
+
+    case Offer::Operation::LAUNCH_GROUP: {
+      Offer::Operation::LaunchGroup* launchGroup =
+        operation->mutable_launch_group();
+
+      if (launchGroup->has_executor()) {
+        transformToPreReservationRefinementResources(
+            launchGroup->mutable_executor()->mutable_resources());
+      }
+
+      TaskGroupInfo* taskGroup = launchGroup->mutable_task_group();
+
+      foreach (TaskInfo& task, *taskGroup->mutable_tasks()) {
+        transformToPreReservationRefinementResources(task.mutable_resources());
+
+        if (task.has_executor()) {
+          transformToPreReservationRefinementResources(
+              task.mutable_executor()->mutable_resources());
+        }
+      }
+      break;
+    }
+
+    case Offer::Operation::RESERVE: {
+      transformToPreReservationRefinementResources(
+          operation->mutable_reserve()->mutable_resources());
+
+      break;
+    }
+
+    case Offer::Operation::UNRESERVE: {
+      transformToPreReservationRefinementResources(
+          operation->mutable_unreserve()->mutable_resources());
+
+      break;
+    }
+
+    case Offer::Operation::CREATE: {
+      transformToPreReservationRefinementResources(
+          operation->mutable_create()->mutable_volumes());
+
+      break;
+    }
+
+    case Offer::Operation::DESTROY: {
+      transformToPreReservationRefinementResources(
+          operation->mutable_destroy()->mutable_volumes());
+
+      break;
+    }
+
+    case Offer::Operation::UNKNOWN:
+      break; // No-op.
+  }
+}
+
+
+void transformToPostReservationRefinementResources(Offer::Operation* operation)
+{
+  switch (operation->type()) {
+    case Offer::Operation::LAUNCH: {
+      Offer::Operation::Launch* launch = operation->mutable_launch();
+
+      foreach (TaskInfo& task, *launch->mutable_task_infos()) {
+        transformToPostReservationRefinementResources(task.mutable_resources());
+
+        if (task.has_executor()) {
+          transformToPostReservationRefinementResources(
+              task.mutable_executor()->mutable_resources());
+        }
+      }
+      break;
+    }
+
+    case Offer::Operation::LAUNCH_GROUP: {
+      Offer::Operation::LaunchGroup* launchGroup =
+        operation->mutable_launch_group();
+
+      if (launchGroup->has_executor()) {
+        transformToPostReservationRefinementResources(
+            launchGroup->mutable_executor()->mutable_resources());
+      }
+
+      TaskGroupInfo* taskGroup = launchGroup->mutable_task_group();
+
+      foreach (TaskInfo& task, *taskGroup->mutable_tasks()) {
+        transformToPostReservationRefinementResources(task.mutable_resources());
+
+        if (task.has_executor()) {
+          transformToPostReservationRefinementResources(
+              task.mutable_executor()->mutable_resources());
+        }
+      }
+      break;
+    }
+
+    case Offer::Operation::RESERVE: {
+      transformToPostReservationRefinementResources(
+          operation->mutable_reserve()->mutable_resources());
+
+      break;
+    }
+
+    case Offer::Operation::UNRESERVE: {
+      transformToPostReservationRefinementResources(
+          operation->mutable_unreserve()->mutable_resources());
+
+      break;
+    }
+
+    case Offer::Operation::CREATE: {
+      transformToPostReservationRefinementResources(
+          operation->mutable_create()->mutable_volumes());
+
+      break;
+    }
+
+    case Offer::Operation::DESTROY: {
+      transformToPostReservationRefinementResources(
+          operation->mutable_destroy()->mutable_volumes());
+
+      break;
+    }
+
+    case Offer::Operation::UNKNOWN:
+      break; // No-op.
+  }
+}
+
 } // namespace mesos {

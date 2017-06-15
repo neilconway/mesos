@@ -443,6 +443,7 @@ set(V1_SRC
   v1/attributes.cpp
   v1/mesos.cpp
   v1/resources.cpp
+  v1/resources_utils.cpp
   v1/values.cpp
   )
 
