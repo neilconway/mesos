@@ -1848,6 +1848,14 @@ void HierarchicalAllocatorProcess::__allocate()
           resources = resources.nonRevocable();
         }
 
+        // Remove resources with refined reservations if the framework has not
+        // opted for them.
+        if (!framework.capabilities.reservationRefinement) {
+          resources = resources.filter([](const Resource& resource) {
+            return resource.reservations_size() <= 1;
+          });
+        }
+
         // If the resources are not allocatable, ignore. We cannot break
         // here, because another framework under the same role could accept
         // revocable resources and breaking would skip all other frameworks.
