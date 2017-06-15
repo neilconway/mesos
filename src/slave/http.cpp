@@ -61,6 +61,7 @@
 #include "common/build.hpp"
 #include "common/http.hpp"
 #include "common/recordio.hpp"
+#include "common/resources_utils.hpp"
 
 #include "internal/devolve.hpp"
 
@@ -72,6 +73,8 @@
 #include "slave/validation.hpp"
 
 #include "version/version.hpp"
+
+using google::protobuf::RepeatedPtrField;
 
 using mesos::agent::ProcessIO;
 
@@ -1292,9 +1295,11 @@ Future<Response> Http::state(
         writer->field(
             "reserved_resources_full",
             [&totalResources](JSON::ObjectWriter* writer) {
-              foreachpair (const string& role,
-                           const Resources& resources,
-                           totalResources.reservations()) {
+              foreachpair (
+                  const string& role,
+                  RepeatedPtrField<Resource> resources,
+                  totalResources.reservations()) {
+                transformToPreReservationRefinementResources(&resources);
                 writer->field(role, [&resources](JSON::ArrayWriter* writer) {
                   foreach (const Resource& resource, resources) {
                     writer->element(JSON::protobuf(resource));
@@ -1302,6 +1307,11 @@ Future<Response> Http::state(
                 });
               }
             });
+
+        RepeatedPtrField<Resource> unreservedResources =
+          totalResources.unreserved();
+
+        transformToPreReservationRefinementResources(&unreservedResources);
 
         writer->field(
             "unreserved_resources_full",

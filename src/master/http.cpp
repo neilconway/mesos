@@ -69,6 +69,7 @@
 #include "common/build.hpp"
 #include "common/http.hpp"
 #include "common/protobuf_utils.hpp"
+#include "common/resources_utils.hpp"
 
 #include "internal/devolve.hpp"
 
@@ -2322,9 +2323,11 @@ Future<Response> Master::Http::slaves(
           writer->field(
               "reserved_resources_full",
               [&reserved](JSON::ObjectWriter* writer) {
-                foreachpair (const string& role,
-                             const Resources& resources,
-                             reserved) {
+                foreachpair (
+                    const string& role,
+                    RepeatedPtrField<Resource> resources,
+                    reserved) {
+                  transformToPreReservationRefinementResources(&resources);
                   writer->field(role, [&resources](JSON::ArrayWriter* writer) {
                     foreach (const Resource& resource, resources) {
                       writer->element(JSON::protobuf(resource));
@@ -2334,7 +2337,10 @@ Future<Response> Master::Http::slaves(
               });
 
 
-          Resources unreservedResources = slave->totalResources.unreserved();
+          RepeatedPtrField<Resource> unreservedResources =
+            slave->totalResources.unreserved();
+
+          transformToPreReservationRefinementResources(&unreservedResources);
 
           writer->field(
               "unreserved_resources_full",
@@ -2344,7 +2350,10 @@ Future<Response> Master::Http::slaves(
                 }
               });
 
-          Resources usedResources = Resources::sum(slave->usedResources);
+          RepeatedPtrField<Resource> usedResources =
+            Resources::sum(slave->usedResources);
+
+          transformToPreReservationRefinementResources(&usedResources);
 
           writer->field(
               "used_resources_full",
@@ -2354,7 +2363,8 @@ Future<Response> Master::Http::slaves(
                 }
               });
 
-          const Resources& offeredResources = slave->offeredResources;
+          RepeatedPtrField<Resource> offeredResources = slave->offeredResources;
+          transformToPreReservationRefinementResources(&offeredResources);
 
           writer->field(
               "offered_resources_full",

@@ -47,9 +47,12 @@
 #include <stout/os/permissions.hpp>
 
 #include "common/http.hpp"
+#include "common/resources_utils.hpp"
 
 #include "messages/messages.hpp"
 #include "module/manager.hpp"
+
+using google::protobuf::RepeatedPtrField;
 
 using std::map;
 using std::ostream;
@@ -337,7 +340,11 @@ JSON::Object model(const Task& task)
 
   object.values["slave_id"] = task.slave_id().value();
   object.values["state"] = TaskState_Name(task.state());
-  object.values["resources"] = model(task.resources());
+
+  RepeatedPtrField<Resource> resources = task.resources();
+  transformToPreReservationRefinementResources(&resources);
+
+  object.values["resources"] = model(Resources(resources));
 
   if (task.has_user()) {
     object.values["user"] = task.user();
@@ -422,7 +429,11 @@ JSON::Object model(const ExecutorInfo& executorInfo)
   object.values["name"] = executorInfo.name();
   object.values["framework_id"] = executorInfo.framework_id().value();
   object.values["command"] = model(executorInfo.command());
-  object.values["resources"] = model(executorInfo.resources());
+
+  RepeatedPtrField<Resource> resources = executorInfo.resources();
+  transformToPreReservationRefinementResources(&resources);
+
+  object.values["resources"] = model(Resources(resources));
 
   if (executorInfo.has_labels()) {
     object.values["labels"] = model(executorInfo.labels());
@@ -579,7 +590,11 @@ void json(JSON::ObjectWriter* writer, const ExecutorInfo& executorInfo)
   writer->field("name", executorInfo.name());
   writer->field("framework_id", executorInfo.framework_id().value());
   writer->field("command", executorInfo.command());
-  writer->field("resources", Resources(executorInfo.resources()));
+
+  RepeatedPtrField<Resource> resources = executorInfo.resources();
+  transformToPreReservationRefinementResources(&resources);
+
+  writer->field("resources", Resources(resources));
 
   // Resources may be empty for command executors.
   if (!executorInfo.resources().empty()) {
@@ -671,7 +686,11 @@ void json(JSON::ObjectWriter* writer, const Task& task)
   writer->field("executor_id", task.executor_id().value());
   writer->field("slave_id", task.slave_id().value());
   writer->field("state", TaskState_Name(task.state()));
-  writer->field("resources", Resources(task.resources()));
+
+  RepeatedPtrField<Resource> resources = task.resources();
+  transformToPreReservationRefinementResources(&resources);
+
+  writer->field("resources", Resources(resources));
 
   // Tasks are not allowed to mix resources allocated to
   // different roles, see MESOS-6636.
