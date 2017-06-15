@@ -2249,11 +2249,12 @@ Future<Response> Master::Http::_reserve(
         return Forbidden();
       }
 
-      // NOTE: `flatten()` is important. To make a dynamic reservation,
-      // we want to ensure that the required resources are available
-      // and unreserved; `flatten()` removes the role and
-      // ReservationInfo from the resources.
-      return _operation(slaveId, resources.flatten(), operation);
+      // NOTE: `popReservation()` here is important. To make a dynamic
+      // reservation, we want to ensure that the required resources
+      // are available. `resources.popReservation()` ensures that we
+      // have the resources we need to produce `resources`.
+      return _operation(
+          slaveId, Resources(resources).popReservation(), operation);
     }));
 }
 

@@ -492,7 +492,7 @@ protected:
         }
       }
 
-      if (!launched && offered.flatten().contains(requiredResources)) {
+      if (!launched && offered.toUnreserved().contains(requiredResources)) {
         TaskInfo _task;
         TaskGroupInfo _taskGroup;
 
