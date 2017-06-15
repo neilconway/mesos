@@ -233,7 +233,10 @@ public:
         case authorization::UNRESERVE_RESOURCES:
           aclObject.set_type(mesos::ACL::Entity::SOME);
           if (object->resource) {
-            aclObject.add_values(object->resource->reservation().principal());
+            Option<string> principal =
+              Resources::reservationPrincipal(*object->resource);
+            CHECK_SOME(principal);
+            aclObject.add_values(principal.get());
           } else if (object->value) {
             aclObject.add_values(*(object->value));
           } else {
@@ -555,7 +558,8 @@ public:
         case authorization::RESERVE_RESOURCES: {
           entityObject.set_type(ACL::Entity::SOME);
           if (object->resource) {
-            entityObject.add_values(object->resource->role());
+            entityObject.add_values(
+                Resources::reservationRole(*(object->resource)).get());
           } else if (object->value) {
             entityObject.add_values(*(object->value));
           } else {
