@@ -847,6 +847,15 @@ TEST_F(RoleTest, Validate)
 }
 
 
+TEST_F(RoleTest, isSubroleOf) {
+  EXPECT_TRUE(roles::isSubroleOf("foo", "foo"));
+  EXPECT_TRUE(roles::isSubroleOf("foo/bar", "foo"));
+  EXPECT_TRUE(roles::isSubroleOf("foo/bar/baz", "foo"));
+  EXPECT_FALSE(roles::isSubroleOf("bar", "foo"));
+  EXPECT_FALSE(roles::isSubroleOf("foobar", "foo"));
+}
+
+
 // Testing get without authentication and with bad credentials.
 TEST_F(RoleTest, EndpointBadAuthentication)
 {
