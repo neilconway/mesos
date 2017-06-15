@@ -1827,6 +1827,7 @@ namespace operation {
 Option<Error> validate(
     const Offer::Operation::Reserve& reserve,
     const Option<Principal>& principal,
+    const protobuf::slave::Capabilities& agentCapabilities,
     const Option<FrameworkInfo>& frameworkInfo)
 {
   // NOTE: this ensures the reservation is not being made to the "*" role.
@@ -1844,6 +1845,14 @@ Option<Error> validate(
     if (!Resources::isDynamicallyReserved(resource)) {
       return Error(
           "Resource " + stringify(resource) + " is not dynamically reserved");
+    }
+
+    if (!agentCapabilities.hierarchicalRole &&
+        strings::contains(resource.role(), "/")) {
+      return Error(
+          "Resource '" + stringify(resource) +
+          "' with a hierarchical role cannot be reserved on an agent without "
+          "HIERARCHICAL_ROLE capability");
     }
 
     if (principal.isSome()) {
@@ -1976,6 +1985,7 @@ Option<Error> validate(
     const Offer::Operation::Create& create,
     const Resources& checkpointedResources,
     const Option<Principal>& principal,
+    const protobuf::slave::Capabilities& agentCapabilities,
     const Option<FrameworkInfo>& frameworkInfo)
 {
   Option<Error> error = resource::validate(create.volumes());
@@ -2008,6 +2018,14 @@ Option<Error> validate(
           "' has been attempted by framework '" +
           stringify(frameworkInfo.get().id()) +
           "' with no SHARED_RESOURCES capability");
+    }
+
+    if (!agentCapabilities.hierarchicalRole &&
+        strings::contains(volume.role(), "/")) {
+      return Error(
+          "Volume '" + stringify(volume) +
+          "' with a hierarchical role cannot be created on an agent without "
+          "HIERARCHICAL_ROLE capability");
     }
 
     // Ensure that the provided principals match. If `principal` is `None`,
