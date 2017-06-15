@@ -986,13 +986,14 @@ bool Resources::isAllocatableTo(
 
 bool Resources::isUnreserved(const Resource& resource)
 {
-  return resource.role() == "*" && !resource.has_reservation();
+  return resource.reservations_size() == 0;
 }
 
 
 bool Resources::isDynamicallyReserved(const Resource& resource)
 {
-  return resource.has_reservation();
+  return isReserved(resource) && (resource.reservations().rbegin()->type() ==
+                                  Resource::ReservationInfo::DYNAMIC);
 }
 
 
@@ -1401,7 +1402,12 @@ Resources Resources::createStrippedScalarQuantity() const
       Resource scalar = resource;
       scalar.clear_provider_id();
       scalar.clear_allocation_info();
-      scalar.clear_reservation();
+      foreach (
+          Resource::ReservationInfo& reservation,
+          *scalar.mutable_reservations()) {
+        reservation.clear_principal();
+        reservation.clear_labels();
+      }
       scalar.clear_disk();
       scalar.clear_shared();
       stripped.add(scalar);
@@ -1451,10 +1457,10 @@ Try<Resources> Resources::apply(const Offer::Operation& operation) const
       }
 
       foreach (const Resource& reserved, operation.reserve().resources()) {
-        if (!Resources::isReserved(reserved)) {
-          return Error("Invalid RESERVE Operation: Resource must be reserved");
-        } else if (!reserved.has_reservation()) {
-          return Error("Invalid RESERVE Operation: Missing 'reservation'");
+        if (!Resources::isDynamicallyReserved(reserved)) {
+          return Error(
+              "Invalid RESERVE Operation: Resource must be dynamically "
+              "reserved");
         }
 
         Resources unreserved = Resources(reserved).flatten();
@@ -1477,10 +1483,10 @@ Try<Resources> Resources::apply(const Offer::Operation& operation) const
       }
 
       foreach (const Resource& reserved, operation.unreserve().resources()) {
-        if (!Resources::isReserved(reserved)) {
-          return Error("Invalid UNRESERVE Operation: Resource is not reserved");
-        } else if (!reserved.has_reservation()) {
-          return Error("Invalid UNRESERVE Operation: Missing 'reservation'");
+        if (!Resources::isDynamicallyReserved(reserved)) {
+          return Error(
+              "Invalid UNRESERVE Operation: Resource is not dynamically "
+              "reserved");
         }
 
         if (!result.contains(reserved)) {
@@ -2073,27 +2079,6 @@ ostream& operator<<(ostream& stream, const Volume& volume)
 }
 
 
-ostream& operator<<(ostream& stream, const Resource::DiskInfo& disk)
-{
-  if (disk.has_source()) {
-    stream << disk.source();
-  }
-
-  if (disk.has_persistence()) {
-    if (disk.has_source()) {
-      stream << ",";
-    }
-    stream << disk.persistence().id();
-  }
-
-  if (disk.has_volume()) {
-    stream << ":" << disk.volume();
-  }
-
-  return stream;
-}
-
-
 ostream& operator<<(ostream& stream, const Labels& labels)
 {
   stream << "{";
@@ -2118,28 +2103,65 @@ ostream& operator<<(ostream& stream, const Labels& labels)
 }
 
 
+ostream& operator<<(
+    ostream& stream,
+    const Resource::ReservationInfo& reservation)
+{
+  stream << Resource::ReservationInfo::Type_Name(reservation.type()) << ","
+         << reservation.role();
+
+  if (reservation.has_principal()) {
+    stream << "," << reservation.principal();
+  }
+
+  if (reservation.has_labels()) {
+    stream << "," << reservation.labels();
+  }
+
+  return stream;
+}
+
+
+ostream& operator<<(ostream& stream, const Resource::DiskInfo& disk)
+{
+  if (disk.has_source()) {
+    stream << disk.source();
+  }
+
+  if (disk.has_persistence()) {
+    if (disk.has_source()) {
+      stream << ",";
+    }
+    stream << disk.persistence().id();
+  }
+
+  if (disk.has_volume()) {
+    stream << ":" << disk.volume();
+  }
+
+  return stream;
+}
+
+
 ostream& operator<<(ostream& stream, const Resource& resource)
 {
   stream << resource.name();
 
-  stream << "(" << resource.role();
-
-  if (resource.has_reservation()) {
-    const Resource::ReservationInfo& reservation = resource.reservation();
-
-    if (reservation.has_principal()) {
-      stream << ", " << reservation.principal();
-    }
-
-    if (reservation.has_labels()) {
-      stream << ", " << reservation.labels();
-    }
-  }
-
-  stream << ")";
-
   if (resource.has_allocation_info()) {
     stream << "(allocated: " << resource.allocation_info().role() << ")";
+  }
+
+  if (resource.reservations_size() > 0) {
+    stream << "(reservations: [";
+
+    for (int i = 0; i < resource.reservations_size(); ++i) {
+      if (i > 0) {
+        stream << ", ";
+      }
+      stream << "(" << resource.reservations(i) << ")";
+    }
+
+    stream << "])";
   }
 
   if (resource.has_disk()) {

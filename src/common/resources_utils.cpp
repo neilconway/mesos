@@ -53,8 +53,11 @@ Try<Resources> applyCheckpointedResources(
     Resource stripped = resource;
 
     if (Resources::isDynamicallyReserved(resource)) {
-      stripped.set_role("*");
-      stripped.clear_reservation();
+      Resource::ReservationInfo reservation = stripped.reservations(0);
+      stripped.clear_reservations();
+      if (reservation.type() == Resource::ReservationInfo::STATIC) {
+        stripped.add_reservations()->CopyFrom(reservation);
+      }
     }
 
     // Strip persistence and volume from the disk info so that we can
