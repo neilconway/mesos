@@ -1390,17 +1390,26 @@ void Slave::doReliableRegistration(Duration maxBackoff)
   // See MESOS-5330.
   link(master.get());
 
-  if (!info.has_id()) {
+  SlaveInfo slaveInfo = info;
+  // TODO(mpark): conditionally:
+  // transformToPreReservationRefinementResources(
+  //     slaveInfo.mutable_resources());
+
+  RepeatedPtrField<Resource> checkpointedResources_ = checkpointedResources;
+  // TODO(mpark): conditionally:
+  // transformToPreReservationRefinementResources(&checkpointedResources_);
+
+  if (!slaveInfo.has_id()) {
     // Registering for the first time.
     RegisterSlaveMessage message;
     message.set_version(MESOS_VERSION);
-    message.mutable_slave()->CopyFrom(info);
+    message.mutable_slave()->CopyFrom(slaveInfo);
     foreach (const SlaveInfo::Capability& capability, AGENT_CAPABILITIES()) {
       message.add_agent_capabilities()->CopyFrom(capability);
     }
 
     // Include checkpointed resources.
-    message.mutable_checkpointed_resources()->CopyFrom(checkpointedResources);
+    message.mutable_checkpointed_resources()->CopyFrom(checkpointedResources_);
 
     send(master.get(), message);
   } else {
@@ -1412,9 +1421,9 @@ void Slave::doReliableRegistration(Duration maxBackoff)
     }
 
     // Include checkpointed resources.
-    message.mutable_checkpointed_resources()->CopyFrom(checkpointedResources);
+    message.mutable_checkpointed_resources()->CopyFrom(checkpointedResources_);
 
-    message.mutable_slave()->CopyFrom(info);
+    message.mutable_slave()->CopyFrom(slaveInfo);
 
     foreachvalue (Framework* framework, frameworks) {
       message.add_frameworks()->CopyFrom(framework->info);
@@ -1595,25 +1604,33 @@ void Slave::run(
   };
 
   injectAllocationInfo(executorInfo.mutable_resources(), frameworkInfo);
+  transformToPostReservationRefinementResources(
+      executorInfo.mutable_resources());
 
   if (task.isSome()) {
     injectAllocationInfo(task->mutable_resources(), frameworkInfo);
+    transformToPostReservationRefinementResources(task->mutable_resources());
 
     if (task->has_executor()) {
       injectAllocationInfo(
           task->mutable_executor()->mutable_resources(),
           frameworkInfo);
+      transformToPostReservationRefinementResources(
+          task->mutable_executor()->mutable_resources());
     }
   }
 
   if (taskGroup.isSome()) {
     foreach (TaskInfo& task, *taskGroup->mutable_tasks()) {
       injectAllocationInfo(task.mutable_resources(), frameworkInfo);
+      transformToPostReservationRefinementResources(task.mutable_resources());
 
       if (task.has_executor()) {
         injectAllocationInfo(
             task.mutable_executor()->mutable_resources(),
             frameworkInfo);
+        transformToPostReservationRefinementResources(
+            task.mutable_executor()->mutable_resources());
       }
     }
   }
@@ -3301,7 +3318,7 @@ void Slave::updateFramework(
 }
 
 
-void Slave::checkpointResources(const vector<Resource>& _checkpointedResources)
+void Slave::checkpointResources(vector<Resource> _checkpointedResources)
 {
   // TODO(jieyu): Here we assume that CheckpointResourcesMessages are
   // ordered (i.e., slave receives them in the same order master sends
@@ -3324,6 +3341,9 @@ void Slave::checkpointResources(const vector<Resource>& _checkpointedResources)
   //      master about the incorrect checkpointed resources. When that
   //      happens, we expect framework to reconcile based on the
   //      offers they get.
+
+  transformToPostReservationRefinementResources(&_checkpointedResources);
+
   Resources newCheckpointedResources = _checkpointedResources;
 
   if (newCheckpointedResources == checkpointedResources) {
@@ -3404,7 +3424,7 @@ Try<Nothing> Slave::syncCheckpointedResources(
   // directory, or LVM volumes from a given device.
   foreach (const Resource& volume, newVolumes) {
     // This is validated in master.
-    CHECK_NE(volume.role(), "*");
+    CHECK(Resources::isReserved(volume));
 
     if (oldVolumes.contains(volume)) {
       continue;
@@ -5923,7 +5943,8 @@ Future<Nothing> Slave::recover(const Try<state::State>& state)
     // agent restart in an incompatible way and the operator may need
     // to either fix the flag or the checkpointed resources.
     Try<Resources> _totalResources = applyCheckpointedResources(
-        info.resources(), checkpointedResources);
+        info.resources(),
+        checkpointedResources);
 
     if (_totalResources.isError()) {
       return Failure(

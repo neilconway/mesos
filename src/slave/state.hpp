@@ -42,6 +42,7 @@
 #include <stout/os/rm.hpp>
 #include <stout/os/write.hpp>
 
+#include "common/resources_utils.hpp"
 #include "messages/messages.hpp"
 
 namespace mesos {
@@ -103,7 +104,8 @@ inline Try<Nothing> checkpoint(
     const std::string& path,
     const Resources& resources)
 {
-  const google::protobuf::RepeatedPtrField<Resource>& messages = resources;
+  google::protobuf::RepeatedPtrField<Resource> messages = resources;
+  transformToPreReservationRefinementResources(&messages);
   return checkpoint(path, messages);
 }
 
