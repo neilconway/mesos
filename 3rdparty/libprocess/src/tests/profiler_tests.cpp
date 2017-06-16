@@ -125,9 +125,11 @@ TEST_F(ProfilerTest, StartAndStopAuthenticationEnabled)
     new BasicAuthenticator(
         READWRITE_HTTP_AUTHENTICATION_REALM, {{"foo", "bar"}}));
 
-  AWAIT_READY(
-      setAuthenticator(
-          READWRITE_HTTP_AUTHENTICATION_REALM, std::move(authenticator)));
+  Future<Nothing> setAuth = setAuthenticator(
+      READWRITE_HTTP_AUTHENTICATION_REALM,
+      std::move(authenticator));
+
+  AWAIT_READY(setAuth);
 
   UPID upid("profiler", process::address());
 

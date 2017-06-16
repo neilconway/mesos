@@ -14,6 +14,7 @@
 
 #include <map>
 #include <string>
+#include <utility>
 
 #include <stout/base64.hpp>
 #include <stout/duration.hpp>
@@ -24,6 +25,7 @@
 #include <process/future.hpp>
 #include <process/gtest.hpp>
 #include <process/http.hpp>
+#include <process/owned.hpp>
 #include <process/process.hpp>
 #include <process/statistics.hpp>
 #include <process/time.hpp>
@@ -52,6 +54,7 @@ using metrics::Timer;
 using process::Clock;
 using process::Failure;
 using process::Future;
+using process::Owned;
 using process::PID;
 using process::Process;
 using process::READONLY_HTTP_AUTHENTICATION_REALM;
@@ -87,11 +90,11 @@ class MetricsTest : public ::testing::Test
 protected:
   Future<Nothing> setAuthenticator(
       const string& realm,
-      process::Owned<Authenticator> authenticator)
+      Owned<Authenticator> authenticator)
   {
     realms.insert(realm);
 
-    return authentication::setAuthenticator(realm, authenticator);
+    return authentication::setAuthenticator(realm, std::move(authenticator));
   }
 
   virtual void TearDown()
@@ -511,12 +514,15 @@ TEST_F(MetricsTest, AsyncTimer)
 // when HTTP authentication is enabled.
 TEST_F(MetricsTest, THREADSAFE_SnapshotAuthenticationEnabled)
 {
-  process::Owned<Authenticator> authenticator(
+  Owned<Authenticator> authenticator(
     new BasicAuthenticator(
         READONLY_HTTP_AUTHENTICATION_REALM, {{"foo", "bar"}}));
 
-  AWAIT_READY(
-      setAuthenticator(READONLY_HTTP_AUTHENTICATION_REALM, authenticator));
+  Future<Nothing> setAuth = setAuthenticator(
+      READONLY_HTTP_AUTHENTICATION_REALM,
+      std::move(authenticator));
+
+  AWAIT_READY(setAuth);
 
   UPID upid("metrics", process::address());
 
