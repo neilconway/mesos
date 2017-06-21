@@ -4559,6 +4559,12 @@ void Master::_accept(
           if (task.has_executor() && !task.executor().has_framework_id()) {
             task_.mutable_executor()
                 ->mutable_framework_id()->CopyFrom(framework->id());
+
+            if (task.executor().has_framework_id()) {
+              LOG(WARNING) << "##################### shallow copy?";
+            } else {
+              LOG(WARNING) << "###################### weird";
+            }
           }
 
           // For backwards compatibility with the v0 and v1 API, when
