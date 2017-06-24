@@ -41,6 +41,7 @@
 
 #include "common/parse.hpp"
 #include "common/protobuf_utils.hpp"
+#include "common/resources_utils.hpp"
 
 #include "hdfs/hdfs.hpp"
 
@@ -476,8 +477,14 @@ protected:
     CHECK_EQ(SUBSCRIBED, state);
 
     foreach (const Offer& offer, offers) {
-      // Strip the allocation from the offer since we use a single role.
       Resources offered = offer.resources();
+
+      // Convert offered resources to post-refinement format; this is
+      // necessary if the master does not support reservation
+      // refinement.
+      convertResourceFormat(&offered, mesos::POST_RESERVATION_REFINEMENT);
+
+      // Strip the allocation from the offer since we use a single role.
       offered.unallocate();
 
       Resources requiredResources;
