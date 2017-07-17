@@ -242,7 +242,7 @@ using two different mechanisms:
 
 2. _Health checks_ using periodic ping messages to the agent. The master sends
    "ping" messages to the agent and expects a "pong" response message within a
-   configurable timeout. The agent is considered to have failed if it does not
+   configurable timeout. The agent is considered to be unreachable if it does not
    respond promptly to a certain number of ping messages in a row. This behavior
    is controlled by the `--agent_ping_timeout` and `--max_agent_ping_timeouts`
    master flags.
