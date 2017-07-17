@@ -5,7 +5,7 @@ layout: documentation
 
 # Mesos High-Availability Mode
 
-If the Mesos master is unavailable, existing tasks can continue to execute, but new resources cannot be allocated and new tasks cannot be launched. To reduce the chance of this situation occurring, Mesos has a high-availability mode that uses multiple Mesos masters: one active master (called the _leader_ or leading master) and several _backups_ in case it fails. The masters elect the leader, with [Apache ZooKeeper](http://zookeeper.apache.org/) both coordinating the election and handling leader detection by masters, agents, and scheduler drivers. More information regarding [how leader election works](http://zookeeper.apache.org/doc/trunk/recipes.html#sc_leaderElection) is available on the Apache Zookeeper website.
+If the Mesos master is unavailable, existing tasks can continue to execute, but new resources cannot be allocated and new tasks cannot be launched. To reduce the chance of this situation occurring, Mesos has a high-availability mode that uses multiple Mesos masters: one active master (called the _leader_ or leading master) and several _backups_ in case it fails. The masters elect the leader, with [Apache ZooKeeper](http://zookeeper.apache.org/) both coordinating the election and informing masters, agents, and scheduler drivers about the identity of the newly elected leading master. More information regarding [how leader election works](http://zookeeper.apache.org/doc/trunk/recipes.html#sc_leaderElection) is available on the Apache Zookeeper website.
 
 This document describes how to configure Mesos to run in high-availability mode. For more information on developing highly available frameworks, see a [companion document](high-availability-framework-guide.md).
 
@@ -46,13 +46,13 @@ When a network partition disconnects a component (master, agent, or scheduler dr
 
 * Scheduler drivers disconnected from the leading master notify the scheduler about their disconnection from the leader.
 
-When a network partition disconnects an agent from the leader:
+When a network partition disconnects an agent from the leading master:
 
-* The agent fails health checks from the leader.
+* The leading master periodically pings each agent; if the master does not receive a response from the agent within a configured timeout (controlled by the `agent_ping_timeout` and `max_agent_ping_timeouts` configuration parameters), the leading master decides that the agent is unreachable.
 
-* The leader marks the agent as deactivated and sends its tasks to the LOST state. The  [Framework Development Guide](app-framework-development-guide.md) describes these various task states.
+* The leader marks the agent as unreachable. All partition-aware tasks on the agent transition to the `TASK_UNREACHABLE` state; non-partition-aware tasks transition to the `TASK_LOST` state. The [Framework Development Guide](app-framework-development-guide.md) describes these various task states.
 
-* Deactivated agents may not re-register with the leader and are told to shut down upon any post-deactivation communication.
+* If an unreachable agent re-registers with the master (e.g., if the network partition heals), any partition-aware tasks on the agent are allowed to continue running. Any non-partition-aware tasks on the agent will be terminated.
 
 ## Implementation Details
 Mesos implements two levels of ZooKeeper leader election abstractions, one in `src/zookeeper` and the other in `src/master` (look for `contender|detector.hpp|cpp`).
